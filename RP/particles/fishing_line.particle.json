@@ -4,7 +4,7 @@
     "description": {
       "identifier": "rpc:fishing_line_particle",
       "basic_render_parameters": {
-        "material": "particles_alpha",
+        "material": "particles_blend",
         "texture": "textures/particle/fishing_line"
       }
     },
@@ -22,8 +22,8 @@
       },
       "minecraft:particle_appearance_billboard": {
         "size": [
-          0.022,
-          0.022
+          0.008,
+          0.008
         ],
         "facing_camera_mode": "lookat_xyz",
         "uv": {

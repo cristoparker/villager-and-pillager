@@ -155,8 +155,8 @@ export function drawParticleLine(dimension, start, end, options = {}) {
     const horizDist = Math.hypot(dx, dz) || 0.001;
     const totalDist = Math.hypot(dx, dy, dz);
 
-    // High-frequency particles spaced every ~0.045 blocks for a seamless, continuous thread
-    const count = Math.max(30, Math.min(220, Math.ceil(totalDist / 0.045)));
+    // Ultra-frequent particles spaced every ~0.025 blocks for a smooth, unbroken line with 8x smaller particles
+    const count = Math.max(40, Math.min(260, Math.ceil(totalDist / 0.025)));
 
     const isTight = options.isTight ?? false;
     const waterSurfaceY = options.waterSurfaceY ?? null;
