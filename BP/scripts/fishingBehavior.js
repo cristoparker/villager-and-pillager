@@ -174,9 +174,19 @@ export function tickFishing(session) {
 
     const bobberLoc = (bobber && bobber.isValid()) ? bobber.location : castTarget;
 
-    // DRAW VISIBLE STRING: connected between the villager's fishing rod tip and the hook
+    // DRAW VISIBLE STRING: connects rod tip to hook eyelet with realistic physics
     const rodTip = getRodTipPosition(villager);
-    drawParticleLine(villager.dimension, rodTip, bobberLoc, FISHING_CONFIG.STRING_PARTICLE_POINTS);
+    const hookAttachPoint = {
+        x: bobberLoc.x,
+        y: bobberLoc.y + 0.18, // Connects directly to top eyelet of fishing hook
+        z: bobberLoc.z
+    };
+
+    drawParticleLine(villager.dimension, rodTip, hookAttachPoint, {
+        isTight: (session.stage === "BITING"),
+        waterSurfaceY: session.waterSurfaceY,
+        tick: session.elapsedTicks
+    });
 
     // Water ripple ring around bobber
     if (session.elapsedTicks % 16 === 0) {
