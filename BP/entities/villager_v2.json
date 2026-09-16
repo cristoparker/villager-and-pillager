@@ -1602,13 +1602,6 @@
           "can_pass_doors": true,
           "can_path_over_water": false
         },
-        "minecraft:behavior.move_to_water": {
-          "priority": 5,
-          "search_range": 48,
-          "search_height": 16,
-          "goal_radius": 3.2,
-          "speed_multiplier": 0.75
-        },
         "minecraft:behavior.trade_interest": {
           "carried_item_switch_time": 2,
           "cooldown": 2,
@@ -2053,6 +2046,13 @@
         }
       },
       "work_schedule_fisher": {
+        "minecraft:behavior.move_to_water": {
+          "priority": 5,
+          "search_range": 48,
+          "search_height": 16,
+          "goal_radius": 3.2,
+          "speed_multiplier": 0.75
+        },
         "minecraft:behavior.work": {
           "priority": 7,
           "active_time": 250,
@@ -2235,9 +2235,6 @@
         "minecraft:trade_resupply": {}
       },
       "rpc:fishing_mode": {
-        "minecraft:movement": {
-          "value": 0.0
-        },
         "minecraft:type_family": {
           "family": [
             "villager",

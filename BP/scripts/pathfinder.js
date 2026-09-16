@@ -1,17 +1,16 @@
 /**
  * Fisherman Villager Addon - Pathfinder & Navigation Helper
- * Works in synergy with Minecraft's native pathfinding (minecraft:behavior.move_to_water).
- * Monitors arrival at river shores and provides gentle obstacle unsticking without jittery teleports.
+ * Relies entirely on Minecraft's native pathfinding AI (minecraft:behavior.move_to_water)
+ * for 100% natural, smooth, non-jumping walking on land.
  */
 
-import { NAVIGATION_CONFIG } from "./config.js";
 import { distance2D } from "./utils.js";
 import { isWaterNear } from "./waterScanner.js";
 
 /**
  * Checks navigation progress towards the target water/river.
- * Relies primarily on Minecraft's native pathfinding AI (behavior.move_to_water),
- * providing stuck assistance when needed.
+ * Does NOT apply any jumping impulses, allowing Minecraft's native pathfinding
+ * to move the villager with 100% smooth, natural footstep animations.
  * 
  * @param {Entity} villager 
  * @param {{ shore: { x: number, y: number, z: number } }} spot 
@@ -25,24 +24,18 @@ export function checkNavigationProgress(villager, spot, navState) {
 
     const currentLoc = villager.location;
 
-    // 1. Check if villager has reached water shore (stops on land before entering water!)
+    // Check if villager has reached water shore (stops on land before entering water!)
     if (isWaterNear(villager.dimension, currentLoc, 2.8)) {
         return { reached: true, stuck: false };
     }
 
-    if (spot && spot.shore) {
-        const distToShore = distance2D(currentLoc, spot.shore);
-        if (distToShore <= NAVIGATION_CONFIG.ARRIVAL_DISTANCE) {
-            return { reached: true, stuck: false };
-        }
-    }
-
-    // 2. Track stuck status
+    // Timeout check (30 seconds)
     navState.totalTicks = (navState.totalTicks || 0) + 1;
-    if (navState.totalTicks > NAVIGATION_CONFIG.TIMEOUT_TICKS) {
+    if (navState.totalTicks > 600) {
         return { reached: false, stuck: true };
     }
 
+    // Monitor position without applying ANY impulses (prevents jumping!)
     if (navState.lastPos) {
         const moved = distance2D(currentLoc, navState.lastPos);
         if (moved < 0.04) {
@@ -53,24 +46,9 @@ export function checkNavigationProgress(villager, spot, navState) {
     }
     navState.lastPos = { x: currentLoc.x, y: currentLoc.y, z: currentLoc.z };
 
-    // 3. Gentle nudge if stuck on a 1-block ledge or fence
-    if (navState.stuckTicks > NAVIGATION_CONFIG.STUCK_TICKS_THRESHOLD) {
-        if (navState.stuckTicks > NAVIGATION_CONFIG.STUCK_TICKS_THRESHOLD * 4) {
-            return { reached: false, stuck: true };
-        }
-
-        if (spot && spot.shore) {
-            const dx = spot.shore.x - currentLoc.x;
-            const dz = spot.shore.z - currentLoc.z;
-            const dist = Math.hypot(dx, dz) || 1;
-            try {
-                villager.applyImpulse({
-                    x: (dx / dist) * 0.18 + (Math.random() - 0.5) * 0.1,
-                    y: 0.38,
-                    z: (dz / dist) * 0.18 + (Math.random() - 0.5) * 0.1
-                });
-            } catch {}
-        }
+    // If completely stuck for over 6 seconds, reset search
+    if (navState.stuckTicks > 120) {
+        return { reached: false, stuck: true };
     }
 
     return { reached: false, stuck: false };

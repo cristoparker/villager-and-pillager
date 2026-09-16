@@ -182,6 +182,7 @@ export class FishermanManager {
                 }
                 try {
                     villager.triggerEvent("rpc:stop_fishing");
+                    villager.triggerEvent("minecraft:schedule_bed_villager");
                 } catch {}
                 try {
                     const equippable = villager.getComponent("minecraft:equippable");
@@ -189,7 +190,9 @@ export class FishermanManager {
                 } catch {}
 
                 record.state = FishermanState.SLEEPING;
-                world.sendMessage(`§6[DEBUG] Sunset/Night arrived! Villager ${id} walking back to bed to sleep.`);
+                record.spot = null;
+                record.navState = { lastPos: null, stuckTicks: 0, totalTicks: 0 };
+                world.sendMessage(`§6[DEBUG] Sunset arrived! Villager ${id} triggered bed schedule to go to sleep.`);
                 this.notifyNearbyPlayers(villager, "§6[Fisherman]§r Sunset! Heading to bed to sleep...");
                 continue;
             }
@@ -208,9 +211,12 @@ export class FishermanManager {
             case FishermanState.SLEEPING: {
                 // Wait for sunrise (clock time 0 / 23500+)
                 if (!isNight) {
+                    try {
+                        villager.triggerEvent("minecraft:schedule_work_fisher");
+                    } catch {}
                     record.state = FishermanState.IDLE;
-                    record.timer = 40; // 2 seconds after waking up before heading to river
-                    world.sendMessage(`§e[DEBUG] Sunrise! Villager ${villager.id} woke up and preparing to fish.`);
+                    record.timer = 50; // Give villager 2.5 seconds to get out of bed
+                    world.sendMessage(`§e[DEBUG] Sunrise! Villager ${villager.id} waking up from bed and heading to river.`);
                     this.notifyNearbyPlayers(villager, "§e[Fisherman]§r Sunrise! Heading to river to fish.");
                 }
                 break;
