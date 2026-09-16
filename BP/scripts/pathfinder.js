@@ -25,8 +25,8 @@ export function checkNavigationProgress(villager, spot, navState) {
 
     const currentLoc = villager.location;
 
-    // 1. Check if villager has reached water/shore!
-    if (isWaterNear(villager.dimension, currentLoc, 3.5)) {
+    // 1. Check if villager has reached water shore (stops on land before entering water!)
+    if (isWaterNear(villager.dimension, currentLoc, 2.8)) {
         return { reached: true, stuck: false };
     }
 

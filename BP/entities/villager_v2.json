@@ -1597,17 +1597,17 @@
       },
       "fisherman": {
         "minecraft:navigation.walk": {
-          "avoid_water": false,
+          "avoid_water": true,
           "can_open_doors": true,
           "can_pass_doors": true,
-          "can_path_over_water": true
+          "can_path_over_water": false
         },
         "minecraft:behavior.move_to_water": {
-          "priority": 2,
+          "priority": 5,
           "search_range": 48,
           "search_height": 16,
-          "goal_radius": 2.5,
-          "speed_multiplier": 0.95
+          "goal_radius": 3.2,
+          "speed_multiplier": 0.75
         },
         "minecraft:behavior.trade_interest": {
           "carried_item_switch_time": 2,
@@ -2235,6 +2235,9 @@
         "minecraft:trade_resupply": {}
       },
       "rpc:fishing_mode": {
+        "minecraft:movement": {
+          "value": 0.0
+        },
         "minecraft:type_family": {
           "family": [
             "villager",
