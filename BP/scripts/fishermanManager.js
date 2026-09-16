@@ -1,7 +1,7 @@
 /**
  * Fisherman Villager Addon - Fisherman Manager Module (Namespace: rpc)
  * Coordinates detection of fisherman villagers, triggers river scanning and movement,
- * and manages continuous fishing routines with on-screen action bar feedback.
+ * and manages continuous fishing routines with detailed chat debug logs.
  */
 
 import { world } from "@minecraft/server";
@@ -22,6 +22,7 @@ export class FishermanManager {
         /** @type {Map<string, { state: string, villager: Entity, spot: any, navState: any, fishingSession: any, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
+        this.debugHeartbeatTicks = 0;
     }
 
     /**
@@ -52,13 +53,6 @@ export class FishermanManager {
         } catch {}
 
         try {
-            const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && variantComp.value === 2) {
-                return true;
-            }
-        } catch {}
-
-        try {
             if (entity.hasTag("rpc:fisherman") || entity.hasTag("fisherman")) {
                 return true;
             }
@@ -74,6 +68,14 @@ export class FishermanManager {
             const equippable = entity.getComponent("minecraft:equippable");
             const mainhand = equippable?.getEquipment("Mainhand");
             if (mainhand && mainhand.typeId === "rpc:fishing_rod") {
+                return true;
+            }
+        } catch {}
+
+        // Also check variant
+        try {
+            const variantComp = entity.getComponent("minecraft:variant");
+            if (variantComp && variantComp.value === 2) {
                 return true;
             }
         } catch {}
@@ -97,9 +99,19 @@ export class FishermanManager {
             } catch {}
         }
 
+        // Heartbeat log every 5 seconds
+        this.debugHeartbeatTicks++;
+        if (this.debugHeartbeatTicks >= 5) {
+            this.debugHeartbeatTicks = 0;
+            world.sendMessage(`§7[DEBUG] Scan: ${villagers.length} villagers found. Registered fishermen: ${this.records.size}`);
+        }
+
         for (const villager of villagers) {
-            if (!this.records.has(villager.id) && this.isFishermanVillager(villager)) {
-                this.registerFisherman(villager);
+            if (!this.records.has(villager.id)) {
+                const isFisher = this.isFishermanVillager(villager);
+                if (isFisher) {
+                    this.registerFisherman(villager);
+                }
             }
         }
     }
@@ -110,13 +122,15 @@ export class FishermanManager {
     registerFisherman(villager) {
         if (!villager || this.records.has(villager.id)) return;
 
+        world.sendMessage(`§a[DEBUG] Registered Fisherman Villager (ID: ${villager.id})! Initializing fishing cycle...`);
+
         this.records.set(villager.id, {
             state: FishermanState.IDLE,
             villager: villager,
             spot: null,
             navState: { lastPos: null, stuckTicks: 0, totalTicks: 0 },
             fishingSession: null,
-            timer: 5
+            timer: 2
         });
     }
 
@@ -140,6 +154,7 @@ export class FishermanManager {
                     cleanupSession(record.fishingSession);
                 }
                 this.records.delete(id);
+                world.sendMessage(`§c[DEBUG] Fisherman ${id} despawned/unloaded.`);
                 continue;
             }
 
@@ -160,7 +175,9 @@ export class FishermanManager {
                     record.timer = SCAN_CONFIG.SEARCH_INTERVAL_TICKS;
 
                     // If already at water, start fishing immediately!
-                    if (isWaterNear(villager.dimension, villager.location, 3.5)) {
+                    const nearWater = isWaterNear(villager.dimension, villager.location, 3.5);
+                    if (nearWater) {
+                        world.sendMessage("§b[DEBUG] Villager is already at water! Casting rod...");
                         const session = startFishing(villager, null);
                         if (session) {
                             record.fishingSession = session;
@@ -177,7 +194,10 @@ export class FishermanManager {
                         record.state = FishermanState.NAVIGATING;
                         record.navState = { lastPos: null, stuckTicks: 0, totalTicks: 0 };
                         const name = spot.isRiver ? "River" : "Water";
+                        world.sendMessage(`§b[DEBUG] Found ${name} at distance ${Math.round(spot.distance)} blocks! Pathfinding...`);
                         this.notifyNearbyPlayers(villager, `§b[Fisherman]§r Found ${name}! Moving to shore...`);
+                    } else {
+                        world.sendMessage("§7[DEBUG] No water found within 48 blocks. Waiting...");
                     }
                 }
                 break;
@@ -187,7 +207,7 @@ export class FishermanManager {
                 // If villager reached water or spot
                 const result = checkNavigationProgress(villager, record.spot, record.navState);
                 if (result.reached) {
-                    // Arrived at shore! Cast fishing rod into the river!
+                    world.sendMessage("§a[DEBUG] Reached water shore! Casting fishing rod into river!");
                     const session = startFishing(villager, record.spot);
                     if (session) {
                         record.fishingSession = session;
@@ -198,7 +218,7 @@ export class FishermanManager {
                         record.timer = 20;
                     }
                 } else if (result.stuck) {
-                    // Retry with a refreshed scan
+                    world.sendMessage("§6[DEBUG] Stuck while pathfinding. Resetting search...");
                     record.state = FishermanState.COOLDOWN;
                     record.timer = 25;
                     record.spot = null;
@@ -241,6 +261,7 @@ export class FishermanManager {
      */
     onEntitySpawn(entity) {
         if (this.isFishermanVillager(entity)) {
+            world.sendMessage(`§a[DEBUG] Entity spawned with Fisherman traits (ID: ${entity.id})`);
             this.registerFisherman(entity);
         }
     }

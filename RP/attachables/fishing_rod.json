@@ -14,8 +14,16 @@
       "geometry": {
         "default": "geometry.bow_standby"
       },
+      "animations": {
+        "wield": "animation.bow.wield"
+      },
+      "scripts": {
+        "animate": [
+          "wield"
+        ]
+      },
       "render_controllers": [
-        "controller.render.default"
+        "controller.render.item_default"
       ]
     }
   }

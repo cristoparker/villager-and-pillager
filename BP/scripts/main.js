@@ -11,6 +11,13 @@ console.warn("[Fisherman Villager Addon] Initializing script module...");
 
 const manager = new FishermanManager();
 
+// Send chat message once world starts
+system.runTimeout(() => {
+    try {
+        world.sendMessage(`§b[Fisherman Addon] Loaded! Active radius: ${SCAN_CONFIG.RADIUS} blocks. Right-click any villager with Villager Fishing Rod to make them fish!`);
+    } catch {}
+}, 20);
+
 // Tick loop running every tick
 system.runInterval(() => {
     try {
@@ -47,7 +54,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                 target.addTag("fisherman");
 
                 manager.registerFisherman(target);
-                player.sendMessage("§a[Fisherman Addon] Villager converted to Fisherman! Heading to water to fish.");
+                world.sendMessage(`§a[DEBUG] Villager converted to Fisherman via rod interaction!`);
             }
         }
     } catch {}

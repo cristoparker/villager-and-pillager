@@ -4,7 +4,7 @@
  * drawing continuous rope/string particles, and fish retrieval.
  */
 
-import { ItemStack } from "@minecraft/server";
+import { world, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { FISHING_CONFIG, LOOT_TABLE } from "./config.js";
 import { 
     getLookRotation, 
@@ -13,7 +13,6 @@ import {
     drawParticleLine, 
     pickRandomLoot 
 } from "./utils.js";
-
 import { findCastTarget } from "./waterScanner.js";
 
 /**
@@ -47,7 +46,7 @@ export function startFishing(villager, spot) {
         castTarget = findCastTarget(villager.dimension, villager.location);
     }
     if (!castTarget) {
-        // Default: 6 blocks in front of villager
+        // Fallback: 6 blocks in front of villager
         const rot = villager.getRotation ? villager.getRotation() : { x: 0, y: 0 };
         const yawRad = rot.y * (Math.PI / 180);
         castTarget = {
@@ -57,13 +56,24 @@ export function startFishing(villager, spot) {
         };
     }
 
-    // 1. Equip custom rpc:fishing_rod item in mainhand
+    world.sendMessage(`§e[DEBUG] Starting fishing! Target: (${Math.floor(castTarget.x)}, ${Math.floor(castTarget.y)}, ${Math.floor(castTarget.z)})`);
+
+    // 1. Trigger custom event & equip custom rpc:fishing_rod item
+    try {
+        villager.triggerEvent("rpc:start_fishing");
+    } catch {}
+
     try {
         const equippable = villager.getComponent("minecraft:equippable");
         if (equippable) {
-            equippable.setEquipment("Mainhand", new ItemStack(FISHING_CONFIG.FISHING_ROD_ITEM_ID, 1));
+            equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(FISHING_CONFIG.FISHING_ROD_ITEM_ID, 1));
+            world.sendMessage("§a[DEBUG] rpc:fishing_rod equipped via equippable component!");
+        } else {
+            world.sendMessage("§c[DEBUG] equippable component not found on villager.");
         }
-    } catch {}
+    } catch (e) {
+        world.sendMessage(`§c[DEBUG] equippable setEquipment error: ${e}`);
+    }
 
     try {
         villager.runCommandAsync("replaceitem entity @s slot.weapon.mainhand 0 rpc:fishing_rod").catch(() => {});
@@ -91,8 +101,8 @@ export function startFishing(villager, spot) {
             z: handPos.z
         });
 
-        const dx = spot.castTarget.x - handPos.x;
-        const dz = spot.castTarget.z - handPos.z;
+        const dx = castTarget.x - handPos.x;
+        const dz = castTarget.z - handPos.z;
         const horizDist = Math.hypot(dx, dz) || 1;
         const speed = Math.min(1.45, Math.max(0.7, horizDist * 0.09));
 
@@ -101,21 +111,26 @@ export function startFishing(villager, spot) {
             y: 0.52,
             z: (dz / horizDist) * speed
         });
-    } catch {
+        world.sendMessage("§a[DEBUG] Hook spawned and cast into water!");
+    } catch (e) {
+        world.sendMessage(`§c[DEBUG] Spawn bobber failed: ${e}`);
         try {
-            bobber = villager.dimension.spawnEntity(FISHING_CONFIG.BOBBER_ENTITY_ID, spot.castTarget);
+            bobber = villager.dimension.spawnEntity(FISHING_CONFIG.BOBBER_ENTITY_ID, castTarget);
         } catch {}
     }
 
-    playSoundSafe(villager.dimension, "random.splash", spot.castTarget, { volume: 0.9, pitch: 1.1 });
+    playSoundSafe(villager.dimension, "random.splash", castTarget, { volume: 0.9, pitch: 1.1 });
 
     const biteDelayTicks = Math.floor(
         Math.random() * (FISHING_CONFIG.MAX_BITE_TICKS - FISHING_CONFIG.MIN_BITE_TICKS)
     ) + FISHING_CONFIG.MIN_BITE_TICKS;
 
+    world.sendMessage(`§e[DEBUG] Hook in water. Waiting ${biteDelayTicks} ticks for fish bite...`);
+
     return {
         villager: villager,
         spot: spot,
+        castTarget: castTarget,
         bobber: bobber,
         stage: "WAITING",
         ticksLeft: biteDelayTicks,
@@ -127,7 +142,7 @@ export function startFishing(villager, spot) {
  * Updates ongoing fishing session each tick.
  */
 export function tickFishing(session) {
-    const { villager, spot, bobber } = session;
+    const { villager, castTarget, bobber } = session;
 
     if (!villager || !villager.isValid()) {
         cleanupSession(session);
@@ -137,7 +152,7 @@ export function tickFishing(session) {
     session.elapsedTicks++;
     session.ticksLeft--;
 
-    const bobberLoc = (bobber && bobber.isValid()) ? bobber.location : spot.castTarget;
+    const bobberLoc = (bobber && bobber.isValid()) ? bobber.location : castTarget;
 
     // Face bobber with raised arms
     if (session.elapsedTicks % 3 === 0) {
@@ -160,6 +175,7 @@ export function tickFishing(session) {
     // Fish bite phase
     if (session.stage === "WAITING" && session.ticksLeft <= FISHING_CONFIG.BITE_WINDOW_TICKS) {
         session.stage = "BITING";
+        world.sendMessage("§6[DEBUG] Fish biting at hook!");
         playSoundSafe(villager.dimension, "random.splash", bobberLoc, { volume: 1.2, pitch: 0.9 });
         spawnParticleSafe(villager.dimension, "minecraft:water_splash_particle", bobberLoc);
         spawnParticleSafe(villager.dimension, "minecraft:bubble_column_bubble", bobberLoc);
@@ -185,13 +201,13 @@ export function tickFishing(session) {
  * Reels in the hook, despawns bobber, launches fish across river, and celebrates.
  */
 export function reelInAndCatch(session) {
-    const { villager, spot, bobber } = session;
+    const { villager, castTarget, bobber } = session;
     if (!villager || !villager.isValid()) {
         cleanupSession(session);
         return;
     }
 
-    const bobberLoc = (bobber && bobber.isValid()) ? bobber.location : spot.castTarget;
+    const bobberLoc = (bobber && bobber.isValid()) ? bobber.location : castTarget;
 
     // 1. Play retrieve sound
     playSoundSafe(villager.dimension, "random.bow", villager.location, { volume: 1.0, pitch: 1.2 });
@@ -200,16 +216,15 @@ export function reelInAndCatch(session) {
     // 2. Remove bobber
     cleanupSession(session);
 
-    // 3. Clear mainhand item or keep
+    // 3. Custom event
     try {
-        const equippable = villager.getComponent("minecraft:equippable");
-        if (equippable) {
-            equippable.setEquipment("Mainhand", undefined);
-        }
+        villager.triggerEvent("rpc:stop_fishing");
     } catch {}
 
     // 4. Launch caught fish item from river to villager
     const loot = pickRandomLoot(LOOT_TABLE);
+    world.sendMessage(`§a[DEBUG] Caught fish: ${loot.typeId}! Reeling into villager inventory.`);
+
     try {
         const fishItem = new ItemStack(loot.typeId, 1);
         const spawnedItem = villager.dimension.spawnItem(fishItem, {
