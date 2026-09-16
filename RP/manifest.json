@@ -1,0 +1,18 @@
+{
+  "format_version": 2,
+  "header": {
+    "name": "Fisherman Villager Addon (RP)",
+    "description": "Resource pack for Fisherman Villager Addon: bobber model, textures, and fishing visuals.",
+    "uuid": "42d41ec9-c997-46eb-b96f-88dce42b677e",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "description": "Fisherman Villager Resource Module",
+      "type": "resources",
+      "uuid": "ab64de6a-6936-4679-ad26-38d1f1f5313c",
+      "version": [1, 0, 0]
+    }
+  ]
+}

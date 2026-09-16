@@ -1,0 +1,52 @@
+/**
+ * Fisherman Villager Addon - Configuration Module (Namespace: rpc)
+ */
+
+export const SCAN_CONFIG = {
+    // Search radius in blocks (48 blocks satisfies "40 blocks or more")
+    RADIUS: 48,
+    RADIAL_STEP: 4,
+    SEA_LEVEL: 63,
+    SEARCH_INTERVAL_TICKS: 20, // Check every 1 second when idle
+    RIVER_BIOME_IDS: [
+        "minecraft:river",
+        "minecraft:frozen_river"
+    ],
+    RIVER_SCORE_BONUS: 5000,
+    GENERIC_WATER_BONUS: 800
+};
+
+export const FISHING_CONFIG = {
+    // Ticks before bite (4 to 8 seconds)
+    MIN_BITE_TICKS: 80,
+    MAX_BITE_TICKS: 160,
+    BITE_WINDOW_TICKS: 25,
+    // Cooldown after catch before looking to fish again (1.5 seconds)
+    COOLDOWN_TICKS: 30,
+    // Distance to cast out into the river
+    FAR_CAST_MIN: 7.0,
+    FAR_CAST_MAX: 15.0,
+    STRING_PARTICLE_POINTS: 16,
+    // Custom rpc identifiers
+    FISHING_ROD_ITEM_ID: "rpc:fishing_rod",
+    BOBBER_ENTITY_ID: "rpc:fishing_bobber",
+    STRING_PARTICLE_ID: "rpc:fishing_line_particle",
+    FALLBACK_PARTICLE_ID: "minecraft:endrod"
+};
+
+export const NAVIGATION_CONFIG = {
+    // Step speed along ground in blocks/tick (natural human pace)
+    WALK_SPEED_PER_TICK: 0.22,
+    ARRIVAL_DISTANCE: 1.4,
+    TIMEOUT_TICKS: 600,
+    STUCK_TICKS_THRESHOLD: 15
+};
+
+export const LOOT_TABLE = [
+    { typeId: "minecraft:cod", weight: 45, displayName: "Raw Cod" },
+    { typeId: "minecraft:salmon", weight: 32, displayName: "Raw Salmon" },
+    { typeId: "minecraft:tropical_fish", weight: 14, displayName: "Tropical Fish" },
+    { typeId: "minecraft:pufferfish", weight: 5, displayName: "Pufferfish" },
+    { typeId: "minecraft:nautilus_shell", weight: 3, displayName: "Nautilus Shell" },
+    { typeId: "minecraft:emerald", weight: 1, displayName: "Emerald" }
+];

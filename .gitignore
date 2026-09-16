@@ -1,0 +1,8 @@
+# Minecraft Vanilla Samples & Archive
+bedrock-samples-v1.26.50.4-full/
+*.zip
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+*.log
