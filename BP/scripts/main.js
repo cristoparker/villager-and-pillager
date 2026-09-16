@@ -5,20 +5,10 @@
 
 import { world, system } from "@minecraft/server";
 import { FishermanManager } from "./fishermanManager.js";
-import { SCAN_CONFIG } from "./config.js";
-
-console.warn("[Fisherman Villager Addon] Initializing script module...");
 
 const manager = new FishermanManager();
 
-// Send chat message once world starts
-system.runTimeout(() => {
-    try {
-        world.sendMessage(`§b[Fisherman Addon] Loaded! Active radius: ${SCAN_CONFIG.RADIUS} blocks. Right-click any villager with Villager Fishing Rod to make them fish!`);
-    } catch {}
-}, 20);
-
-// Tick loop running every tick
+// Central game tick loop
 system.runInterval(() => {
     try {
         manager.update();
@@ -36,7 +26,7 @@ world.afterEvents.entitySpawn.subscribe((event) => {
     } catch {}
 });
 
-// Allow player to right-click any villager with rpc:fishing_rod to turn them into a Fisherman!
+// Allow player to right-click any villager with rpc:fishing_rod to turn them into a Fisherman
 world.afterEvents.playerInteractWithEntity.subscribe((event) => {
     try {
         const { player, target } = event;
@@ -54,12 +44,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                 target.addTag("fisherman");
 
                 manager.registerFisherman(target);
-                world.sendMessage(`§a[DEBUG] Villager converted to Fisherman via rod interaction!`);
             }
         }
     } catch {}
 });
-
-console.warn(
-    `[Fisherman Villager Addon] Successfully initialized! River detection radius: ${SCAN_CONFIG.RADIUS} blocks.`
-);

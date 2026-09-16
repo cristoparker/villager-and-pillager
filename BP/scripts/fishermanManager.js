@@ -2,7 +2,7 @@
  * Fisherman Villager Addon - Fisherman Manager Module (Namespace: rpc)
  * Coordinates detection of fisherman villagers, manages smooth river walking,
  * enforces day/night sleeping schedules (returning to bed at sunset/night and fishing at sunrise),
- * and manages continuous fishing routines with chat debug logs.
+ * and manages continuous fishing routines silently.
  */
 
 import { world, EquipmentSlot } from "@minecraft/server";
@@ -24,7 +24,6 @@ export class FishermanManager {
         /** @type {Map<string, { state: string, villager: Entity, spot: any, navState: any, fishingSession: any, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
-        this.debugHeartbeatTicks = 0;
     }
 
     /**
@@ -37,21 +36,6 @@ export class FishermanManager {
         } catch {
             return false;
         }
-    }
-
-    /**
-     * Broadcasts an action bar status message to players near the villager.
-     */
-    notifyNearbyPlayers(villager, message) {
-        try {
-            const players = villager.dimension.getPlayers({
-                location: villager.location,
-                maxDistance: 32
-            });
-            for (const p of players) {
-                p.onScreenDisplay.setActionBar(message);
-            }
-        } catch {}
     }
 
     /**
@@ -112,15 +96,6 @@ export class FishermanManager {
             } catch {}
         }
 
-        // Heartbeat log every 10 seconds
-        this.debugHeartbeatTicks++;
-        if (this.debugHeartbeatTicks >= 10) {
-            this.debugHeartbeatTicks = 0;
-            const time = world.getTimeOfDay();
-            const timeStr = this.isNightTime() ? "Night (Sleeping)" : "Day (Fishing)";
-            world.sendMessage(`§7[DEBUG] Villagers: ${villagers.length}, Active fishermen: ${this.records.size} | Time: ${time} [${timeStr}]`);
-        }
-
         for (const villager of villagers) {
             if (!this.records.has(villager.id)) {
                 const isFisher = this.isFishermanVillager(villager);
@@ -136,8 +111,6 @@ export class FishermanManager {
      */
     registerFisherman(villager) {
         if (!villager || this.records.has(villager.id)) return;
-
-        world.sendMessage(`§a[DEBUG] Registered Fisherman Villager (ID: ${villager.id})!`);
 
         this.records.set(villager.id, {
             state: FishermanState.IDLE,
@@ -174,7 +147,7 @@ export class FishermanManager {
                 continue;
             }
 
-            // NIGHTTIME CHECK: At sunset/night, stop fishing and let villager go to bed!
+            // NIGHTTIME CHECK: At sunset/night, stop fishing and let villager go to bed
             if (isNight && record.state !== FishermanState.SLEEPING) {
                 if (record.fishingSession) {
                     cleanupSession(record.fishingSession);
@@ -192,8 +165,6 @@ export class FishermanManager {
                 record.state = FishermanState.SLEEPING;
                 record.spot = null;
                 record.navState = { lastPos: null, stuckTicks: 0, totalTicks: 0 };
-                world.sendMessage(`§6[DEBUG] Sunset arrived! Villager ${id} triggered bed schedule to go to sleep.`);
-                this.notifyNearbyPlayers(villager, "§6[Fisherman]§r Sunset! Heading to bed to sleep...");
                 continue;
             }
 
@@ -216,8 +187,6 @@ export class FishermanManager {
                     } catch {}
                     record.state = FishermanState.IDLE;
                     record.timer = 50; // Give villager 2.5 seconds to get out of bed
-                    world.sendMessage(`§e[DEBUG] Sunrise! Villager ${villager.id} waking up from bed and heading to river.`);
-                    this.notifyNearbyPlayers(villager, "§e[Fisherman]§r Sunrise! Heading to river to fish.");
                 }
                 break;
             }
@@ -227,15 +196,13 @@ export class FishermanManager {
                 if (record.timer <= 0) {
                     record.timer = SCAN_CONFIG.SEARCH_INTERVAL_TICKS;
 
-                    // If already standing near water shore, fish right here on the land!
+                    // If already standing near water shore, fish right here on the land
                     const nearWater = isWaterNear(villager.dimension, villager.location, 2.8);
                     if (nearWater) {
-                        world.sendMessage("§b[DEBUG] Standing on land at shore! Casting rod...");
                         const session = startFishing(villager, null);
                         if (session) {
                             record.fishingSession = session;
                             record.state = FishermanState.FISHING;
-                            this.notifyNearbyPlayers(villager, "§b[Fisherman]§r Casting fishing rod into water!");
                             break;
                         }
                     }
@@ -246,9 +213,6 @@ export class FishermanManager {
                         record.spot = spot;
                         record.state = FishermanState.NAVIGATING;
                         record.navState = { lastPos: null, stuckTicks: 0, totalTicks: 0 };
-                        const name = spot.isRiver ? "River" : "Water";
-                        world.sendMessage(`§b[DEBUG] Found ${name} ${Math.round(spot.distance)}m away! Walking smoothly to shore...`);
-                        this.notifyNearbyPlayers(villager, `§b[Fisherman]§r Found ${name}! Walking to shore...`);
                     }
                 }
                 break;
@@ -258,18 +222,15 @@ export class FishermanManager {
                 // Check if villager arrived at the shoreline
                 const result = checkNavigationProgress(villager, record.spot, record.navState);
                 if (result.reached) {
-                    world.sendMessage("§a[DEBUG] Reached land edge at shore! Standing on land to fish.");
                     const session = startFishing(villager, record.spot);
                     if (session) {
                         record.fishingSession = session;
                         record.state = FishermanState.FISHING;
-                        this.notifyNearbyPlayers(villager, "§b[Fisherman]§r Casting fishing rod into river!");
                     } else {
                         record.state = FishermanState.COOLDOWN;
                         record.timer = 20;
                     }
                 } else if (result.stuck) {
-                    world.sendMessage("§6[DEBUG] Pathfinding stuck. Resetting search...");
                     record.state = FishermanState.COOLDOWN;
                     record.timer = 25;
                     record.spot = null;
@@ -286,8 +247,7 @@ export class FishermanManager {
 
                 const stillFishing = tickFishing(record.fishingSession);
                 if (!stillFishing) {
-                    // Caught fish! Quick cooldown (1.5s) then repeat!
-                    this.notifyNearbyPlayers(villager, "§a[Fisherman]§r Caught a fish!");
+                    // Caught fish! Quick cooldown (1.5s) then repeat
                     record.fishingSession = null;
                     record.state = FishermanState.COOLDOWN;
                     record.timer = FISHING_CONFIG.COOLDOWN_TICKS;

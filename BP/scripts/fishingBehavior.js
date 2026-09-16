@@ -1,10 +1,10 @@
 /**
  * Fisherman Villager Addon - Fishing Behavior Module (Namespace: rpc)
- * Handles equipping rpc:fishing_rod, casting rpc:fishing_bobber far into the river,
- * keeping the hook floating smoothly on the water surface, and drawing a continuous rope/string particle line.
+ * Handles equipping rpc:fishing_rod, placing rpc:fishing_bobber on the river surface,
+ * keeping the hook floating smoothly on the water, and drawing a continuous rope/string particle line.
  */
 
-import { world, ItemStack, EquipmentSlot } from "@minecraft/server";
+import { ItemStack, EquipmentSlot } from "@minecraft/server";
 import { FISHING_CONFIG, LOOT_TABLE } from "./config.js";
 import { 
     getLookRotation, 
@@ -17,6 +17,7 @@ import { findCastTarget, findWaterSurfaceY } from "./waterScanner.js";
 
 /**
  * Calculates the exact tip position of the held fishing rod in world space.
+ * Matched to the tip of the item model held in the villager's right hand.
  */
 export function getRodTipPosition(villager) {
     const loc = villager.location;
@@ -26,42 +27,45 @@ export function getRodTipPosition(villager) {
     // Forward direction unit vector
     const dirX = -Math.sin(yawRad);
     const dirZ = Math.cos(yawRad);
-    // Right arm offset
-    const rightX = Math.cos(yawRad) * 0.35;
-    const rightZ = Math.sin(yawRad) * 0.35;
+    // Right hand offset
+    const rightX = Math.cos(yawRad) * 0.32;
+    const rightZ = Math.sin(yawRad) * 0.32;
 
-    // Rod extends forward from the villager's hands
+    // Rod tip: reaches forward ~0.65 blocks from body and sits at chest height (~1.18 blocks up)
     return {
-        x: loc.x + rightX + dirX * 1.35,
-        y: loc.y + 1.55,
-        z: loc.z + rightZ + dirZ * 1.35
+        x: loc.x + rightX + dirX * 0.65,
+        y: loc.y + 1.18,
+        z: loc.z + rightZ + dirZ * 0.65
     };
 }
 
 /**
- * Starts the fishing sequence: equips rpc:fishing_rod item, throws hook far into river.
+ * Starts the fishing sequence: equips rpc:fishing_rod item, places hook in river water.
  */
 export function startFishing(villager, spot) {
     if (!villager || !villager.isValid()) return null;
 
     let castTarget = spot?.castTarget;
     if (!castTarget) {
-        castTarget = findCastTarget(villager.dimension, villager.location);
+        castTarget = findCastTarget(villager.dimension, villager);
     }
     if (!castTarget) {
-        // Fallback: 6 blocks in front of villager
+        // Fallback: search 2 to 4 blocks in front of villager for water surface
         const rot = villager.getRotation ? villager.getRotation() : { x: 0, y: 0 };
         const yawRad = rot.y * (Math.PI / 180);
+        const fX = -Math.sin(yawRad);
+        const fZ = Math.cos(yawRad);
+        const waterY = findWaterSurfaceY(villager.dimension, villager.location.x + fX * 3, villager.location.y, villager.location.z + fZ * 3);
+        const targetY = (waterY !== null) ? waterY + 0.88 : (villager.location.y - 0.12);
         castTarget = {
-            x: villager.location.x - Math.sin(yawRad) * 6,
-            y: villager.location.y - 0.2,
-            z: villager.location.z + Math.cos(yawRad) * 6
+            x: villager.location.x + fX * 3 + 0.5,
+            y: targetY,
+            z: villager.location.z + fZ * 3 + 0.5,
+            waterSurfaceY: waterY
         };
     }
 
-    world.sendMessage(`§e[DEBUG] Start fishing! Cast target: (${Math.floor(castTarget.x)}, ${Math.floor(castTarget.y)}, ${Math.floor(castTarget.z)})`);
-
-    // 1. Trigger custom event: sets movement speed to 0.0 so villager stands firmly on land!
+    // 1. Trigger custom event: sets movement speed to 0.0 so villager stands firmly on land
     try {
         villager.triggerEvent("rpc:start_fishing");
     } catch {}
@@ -78,45 +82,33 @@ export function startFishing(villager, spot) {
         villager.runCommandAsync("replaceitem entity @s slot.weapon.mainhand 0 rpc:fishing_rod").catch(() => {});
     } catch {}
 
-    // 3. Face water cast spot ONCE (do NOT repeatedly teleport every tick!)
+    // 3. Face water cast spot
     const rot = getLookRotation(villager.location, castTarget);
     try {
         villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
-    // 4. Play cast sound
+    // 4. Play cast sound at villager
     playSoundSafe(villager.dimension, "random.bow", villager.location, { volume: 1.0, pitch: 0.85 });
 
-    // 5. Spawn and throw hook far into the river
-    const rodTip = getRodTipPosition(villager);
+    // 5. Spawn bobber directly resting on top of the river water surface
     let bobber = null;
-
     try {
-        bobber = villager.dimension.spawnEntity(FISHING_CONFIG.BOBBER_ENTITY_ID, {
-            x: rodTip.x,
-            y: rodTip.y + 0.2,
-            z: rodTip.z
-        });
-
-        const dx = castTarget.x - rodTip.x;
-        const dz = castTarget.z - rodTip.z;
-        const horizDist = Math.hypot(dx, dz) || 1;
-        const speed = Math.min(1.4, Math.max(0.65, horizDist * 0.088));
-
-        bobber.applyImpulse({
-            x: (dx / horizDist) * speed,
-            y: 0.48,
-            z: (dz / horizDist) * speed
-        });
-        world.sendMessage("§a[DEBUG] Hook cast smoothly into water!");
+        bobber = villager.dimension.spawnEntity(FISHING_CONFIG.BOBBER_ENTITY_ID, castTarget);
     } catch {
         try {
-            bobber = villager.dimension.spawnEntity(FISHING_CONFIG.BOBBER_ENTITY_ID, castTarget);
+            bobber = villager.dimension.spawnEntity(FISHING_CONFIG.BOBBER_ENTITY_ID, {
+                x: castTarget.x,
+                y: castTarget.y,
+                z: castTarget.z
+            });
         } catch {}
     }
 
+    // Splash sound and water wake particles at the bobber in the water
     playSoundSafe(villager.dimension, "random.splash", castTarget, { volume: 0.9, pitch: 1.1 });
+    spawnParticleSafe(villager.dimension, "minecraft:water_splash_particle", castTarget);
 
     const biteDelayTicks = Math.floor(
         Math.random() * (FISHING_CONFIG.MAX_BITE_TICKS - FISHING_CONFIG.MIN_BITE_TICKS)
@@ -130,7 +122,7 @@ export function startFishing(villager, spot) {
         stage: "WAITING",
         ticksLeft: biteDelayTicks,
         elapsedTicks: 0,
-        waterSurfaceY: null
+        waterSurfaceY: castTarget.waterSurfaceY ?? (castTarget.y - 0.88)
     };
 }
 
@@ -148,37 +140,26 @@ export function tickFishing(session) {
     session.elapsedTicks++;
     session.ticksLeft--;
 
-    // Keep bobber floating over water like normal player fishing rod
+    // Keep bobber floating smoothly on the water surface with gentle wave oscillation
     if (bobber && bobber.isValid()) {
-        const bobberPos = bobber.location;
-        if (session.waterSurfaceY === null || session.elapsedTicks % 20 === 0) {
-            const foundY = findWaterSurfaceY(villager.dimension, bobberPos.x, bobberPos.y + 2, bobberPos.z);
-            if (foundY !== null) {
-                session.waterSurfaceY = foundY;
-            }
-        }
+        const isBiting = session.stage === "BITING";
+        const wave = isBiting ? -0.22 : Math.sin(session.elapsedTicks * 0.16) * 0.04;
 
-        if (session.waterSurfaceY !== null) {
-            // Gentle floating wave bobbing
-            const isBiting = session.stage === "BITING";
-            const wave = isBiting ? -0.25 : Math.sin(session.elapsedTicks * 0.18) * 0.04;
-
-            bobber.teleport({
-                x: bobberPos.x,
-                y: session.waterSurfaceY + 0.88 + wave,
-                z: bobberPos.z
-            });
-            bobber.clearVelocity();
-        }
+        bobber.teleport({
+            x: castTarget.x,
+            y: castTarget.y + wave,
+            z: castTarget.z
+        });
+        bobber.clearVelocity();
     }
 
     const bobberLoc = (bobber && bobber.isValid()) ? bobber.location : castTarget;
 
-    // DRAW VISIBLE STRING: connects rod tip to hook eyelet with realistic physics
+    // DRAW VISIBLE STRING: connects directly from the fishing rod tip to the hook eyelet
     const rodTip = getRodTipPosition(villager);
     const hookAttachPoint = {
         x: bobberLoc.x,
-        y: bobberLoc.y + 0.18, // Connects directly to top eyelet of fishing hook
+        y: bobberLoc.y + 0.18, // Connects to top eyelet of hook model
         z: bobberLoc.z
     };
 
@@ -196,7 +177,6 @@ export function tickFishing(session) {
     // Fish bite phase
     if (session.stage === "WAITING" && session.ticksLeft <= FISHING_CONFIG.BITE_WINDOW_TICKS) {
         session.stage = "BITING";
-        world.sendMessage("§6[DEBUG] Hook tugged down! Fish biting!");
         playSoundSafe(villager.dimension, "random.splash", bobberLoc, { volume: 1.2, pitch: 0.9 });
         spawnParticleSafe(villager.dimension, "minecraft:water_splash_particle", bobberLoc);
         spawnParticleSafe(villager.dimension, "minecraft:bubble_column_bubble", bobberLoc);
@@ -238,7 +218,6 @@ export function reelInAndCatch(session) {
 
     // 4. Launch caught fish item from river to villager
     const loot = pickRandomLoot(LOOT_TABLE);
-    world.sendMessage(`§a[DEBUG] Caught fish: ${loot.typeId}! Reeling to shore.`);
 
     try {
         const fishItem = new ItemStack(loot.typeId, 1);

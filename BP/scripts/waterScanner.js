@@ -28,15 +28,15 @@ export function isRiverBiome(dimension, x, y, z) {
  * Finds the water surface Y coordinate at an X, Z column.
  */
 export function findWaterSurfaceY(dimension, x, startY, z) {
-    const minY = Math.min(startY - 16, SCAN_CONFIG.SEA_LEVEL - 6);
-    const maxY = Math.max(startY + 6, SCAN_CONFIG.SEA_LEVEL + 6);
+    const minY = Math.max(-64, Math.floor(startY) - 16);
+    const maxY = Math.min(320, Math.floor(startY) + 6);
 
     for (let y = maxY; y >= minY; y--) {
         try {
             const block = dimension.getBlock({ x: Math.floor(x), y: y, z: Math.floor(z) });
             if (isWaterBlock(block)) {
                 const above = dimension.getBlock({ x: Math.floor(x), y: y + 1, z: Math.floor(z) });
-                if (isPassableBlock(above)) {
+                if (!above || above.isAir || isPassableBlock(above)) {
                     return y;
                 }
             }
@@ -74,45 +74,34 @@ export function isWaterNear(dimension, location, radius = 3.5) {
 }
 
 /**
- * Finds open water in the direction the villager is facing or around them for casting.
+ * Finds open water in front of the villager or nearby for casting.
+ * Prioritizes forward facing cone and ensures hook sits precisely on the water surface.
  */
-export function findCastTarget(dimension, villagerLoc) {
-    if (!dimension || !villagerLoc) return null;
+export function findCastTarget(dimension, villagerOrLoc) {
+    if (!dimension || !villagerOrLoc) return null;
 
+    const isEntity = !!villagerOrLoc.location;
+    const villagerLoc = isEntity ? villagerOrLoc.location : villagerOrLoc;
     const locX = Math.floor(villagerLoc.x);
     const locY = Math.floor(villagerLoc.y);
     const locZ = Math.floor(villagerLoc.z);
 
-    // Check radially outward for deep open water between 6 and 14 blocks away
-    for (let dist = FISHING_CONFIG.FAR_CAST_MAX; dist >= FISHING_CONFIG.FAR_CAST_MIN; dist -= 2) {
-        // 16 radial directions
-        for (let a = 0; a < 16; a++) {
-            const angle = (a / 16) * 2 * Math.PI;
-            const targetX = Math.floor(locX + Math.cos(angle) * dist);
-            const targetZ = Math.floor(locZ + Math.sin(angle) * dist);
-
-            const waterY = findWaterSurfaceY(dimension, targetX, locY, targetZ);
-            if (waterY !== null) {
-                // Ensure headroom above water
-                try {
-                    const above = dimension.getBlock({ x: targetX, y: waterY + 1, z: targetZ });
-                    if (isPassableBlock(above)) {
-                        return {
-                            x: targetX + 0.5,
-                            y: waterY + 0.9,
-                            z: targetZ + 0.5,
-                            isRiver: isRiverBiome(dimension, targetX, waterY, targetZ)
-                        };
-                    }
-                } catch {}
-            }
-        }
+    // Forward direction unit vector from villager rotation if available
+    let forwardYaw = 0;
+    if (isEntity && villagerOrLoc.getRotation) {
+        forwardYaw = villagerOrLoc.getRotation().y;
     }
+    const forwardRad = forwardYaw * (Math.PI / 180);
+    const fX = -Math.sin(forwardRad);
+    const fZ = Math.cos(forwardRad);
 
-    // Fallback: check close water (3 to 6 blocks)
-    for (let dist = 5; dist >= 2; dist--) {
-        for (let a = 0; a < 8; a++) {
-            const angle = (a / 8) * 2 * Math.PI;
+    // Angular offsets prioritizing forward cone (0 deg, +/- 22.5 deg, +/- 45 deg, +/- 67.5 deg, etc.)
+    const angleOffsets = [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6, 2.0, -2.0, 2.5, -2.5, Math.PI];
+
+    // Check far distances (6 to 14 blocks) in forward cone
+    for (let dist = FISHING_CONFIG.FAR_CAST_MAX; dist >= FISHING_CONFIG.FAR_CAST_MIN; dist -= 2) {
+        for (const offset of angleOffsets) {
+            const angle = Math.atan2(fZ, fX) + offset;
             const targetX = Math.floor(locX + Math.cos(angle) * dist);
             const targetZ = Math.floor(locZ + Math.sin(angle) * dist);
 
@@ -120,8 +109,29 @@ export function findCastTarget(dimension, villagerLoc) {
             if (waterY !== null) {
                 return {
                     x: targetX + 0.5,
-                    y: waterY + 0.9,
+                    y: waterY + 0.88,
                     z: targetZ + 0.5,
+                    waterSurfaceY: waterY,
+                    isRiver: isRiverBiome(dimension, targetX, waterY, targetZ)
+                };
+            }
+        }
+    }
+
+    // Medium/close fallback (2.5 to 6 blocks)
+    for (let dist = 6; dist >= 2.5; dist -= 1) {
+        for (const offset of angleOffsets) {
+            const angle = Math.atan2(fZ, fX) + offset;
+            const targetX = Math.floor(locX + Math.cos(angle) * dist);
+            const targetZ = Math.floor(locZ + Math.sin(angle) * dist);
+
+            const waterY = findWaterSurfaceY(dimension, targetX, locY, targetZ);
+            if (waterY !== null) {
+                return {
+                    x: targetX + 0.5,
+                    y: waterY + 0.88,
+                    z: targetZ + 0.5,
+                    waterSurfaceY: waterY,
                     isRiver: isRiverBiome(dimension, targetX, waterY, targetZ)
                 };
             }

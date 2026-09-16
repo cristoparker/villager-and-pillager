@@ -155,47 +155,46 @@ export function drawParticleLine(dimension, start, end, options = {}) {
     const horizDist = Math.hypot(dx, dz) || 0.001;
     const totalDist = Math.hypot(dx, dy, dz);
 
-    // Densely spaced particles for an unbroken, solid line (every ~0.18 blocks)
-    const count = Math.max(20, Math.min(80, Math.ceil(totalDist / 0.18)));
+    // High-frequency particles spaced every ~0.045 blocks for a seamless, continuous thread
+    const count = Math.max(30, Math.min(220, Math.ceil(totalDist / 0.045)));
 
     const isTight = options.isTight ?? false;
     const waterSurfaceY = options.waterSurfaceY ?? null;
     const tick = options.tick ?? 0;
 
     // Catenary physics:
-    // Slack line has catenary sag proportional to horizontal distance.
-    // Tight line (fish biting / pulling) snaps taut with minimal sag and rapid vibration.
+    // Slack line has a natural, elegant gravity sag proportional to distance.
+    // Tight line (fish biting) snaps nearly straight with high-frequency tension vibration.
     const maxSag = isTight 
-        ? Math.min(0.12, horizDist * 0.015) 
-        : Math.min(1.25, Math.max(0.15, horizDist * 0.065));
+        ? Math.min(0.08, horizDist * 0.01) 
+        : Math.min(0.85, Math.max(0.08, horizDist * 0.048));
 
     for (let i = 0; i <= count; i++) {
         const factor = i / count;
 
-        // Catenary parabolic sag: 4 * factor * (1 - factor) reaches 1.0 at midpoint and 0.0 at both ends
+        // Parabolic catenary curve: 4 * factor * (1 - factor) reaches 1.0 at midpoint and 0.0 at both ends
         const parabolic = 4 * factor * (1 - factor);
         let sag = parabolic * maxSag;
 
         // Dynamic micro-physics:
-        // When biting: high-frequency tension vibration along the line
-        // When slack: gentle natural breeze sway
         let swayX = 0;
         let swayZ = 0;
         if (isTight) {
-            const vibration = Math.sin(tick * 1.5 + factor * Math.PI * 3) * 0.03 * parabolic;
+            // Rapid biting tension vibration
+            const vibration = Math.sin(tick * 1.5 + factor * Math.PI * 3) * 0.02 * parabolic;
             sag += vibration;
         } else {
-            const sway = Math.sin(tick * 0.1 + factor * Math.PI) * 0.02 * parabolic;
-            // Sway perpendicular to line direction
+            // Subtle breeze drift
+            const sway = Math.sin(tick * 0.09 + factor * Math.PI) * 0.015 * parabolic;
             swayX = (-dz / horizDist) * sway;
             swayZ = (dx / horizDist) * sway;
         }
 
         let posY = start.y + dy * factor - sag;
 
-        // Water boundary constraint: line rests on the water surface instead of sinking invisibly
-        if (waterSurfaceY !== null && posY < waterSurfaceY + 0.06) {
-            posY = waterSurfaceY + 0.06;
+        // Water boundary constraint: line rests gently on the water surface near hook
+        if (waterSurfaceY !== null && posY < waterSurfaceY + 0.04) {
+            posY = waterSurfaceY + 0.04;
         }
 
         const pt = {
