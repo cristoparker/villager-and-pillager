@@ -50,3 +50,36 @@ export const LOOT_TABLE = [
     { typeId: "minecraft:nautilus_shell", weight: 3, displayName: "Nautilus Shell" },
     { typeId: "minecraft:emerald", weight: 1, displayName: "Emerald" }
 ];
+
+export const SHEPHERD_CONFIG = {
+    // Search radius to look for sheep (blocks)
+    SHEEP_SEARCH_RADIUS: 24,
+    // Distance from sheep to perform shearing
+    SHEAR_DISTANCE: 2.5,
+    // Cooldown ticks after shearing before finding another sheep (3 seconds)
+    SHEAR_COOLDOWN_TICKS: 60,
+    // Interaction duration in ticks (arm raise and snip animation)
+    SHEAR_ANIMATION_TICKS: 22,
+    // Preferred item IDs to equip in hand
+    SHEARS_ITEM_ID: "rpc:shears",
+    VANILLA_SHEARS_ITEM_ID: "minecraft:shears",
+    // Color to wool block item ID mapping (0-15 matching Bedrock color component)
+    WOOL_MAP: [
+        "minecraft:white_wool",       // 0
+        "minecraft:orange_wool",      // 1
+        "minecraft:magenta_wool",     // 2
+        "minecraft:light_blue_wool",  // 3
+        "minecraft:yellow_wool",      // 4
+        "minecraft:lime_wool",        // 5
+        "minecraft:pink_wool",        // 6
+        "minecraft:gray_wool",        // 7
+        "minecraft:light_gray_wool",  // 8
+        "minecraft:cyan_wool",        // 9
+        "minecraft:purple_wool",      // 10
+        "minecraft:blue_wool",        // 11
+        "minecraft:brown_wool",       // 12
+        "minecraft:green_wool",       // 13
+        "minecraft:red_wool",         // 14
+        "minecraft:black_wool"        // 15
+    ]
+};

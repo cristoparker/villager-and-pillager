@@ -4,6 +4,12 @@
   "texture_data": {
     "rpc_fishing_rod": {
       "textures": "textures/items/fishing_rod_uncast"
+    },
+    "rpc_shears": {
+      "textures": "textures/items/shears"
+    },
+    "shears": {
+      "textures": "textures/items/shears"
     }
   }
 }

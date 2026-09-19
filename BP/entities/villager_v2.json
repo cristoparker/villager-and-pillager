@@ -2167,6 +2167,21 @@
         },
         "minecraft:variant": {
           "value": 3
+        },
+        "minecraft:behavior.follow_mob": {
+          "priority": 4,
+          "speed_multiplier": 0.75,
+          "search_range": 24,
+          "stop_distance": 1.8,
+          "preferred_actor_type": "minecraft:sheep"
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
         }
       },
       "swamp_villager": {
@@ -2568,7 +2583,31 @@
             "baby",
             "child_schedule",
             "job_specific_goals",
-            "trade_components"
+            "trade_components",
+            "shepherd",
+            "rpc:fishing_mode"
+          ]
+        }
+      },
+      "rpc:become_shepherd": {
+        "add": {
+          "component_groups": [
+            "shepherd",
+            "adult",
+            "make_and_receive_love",
+            "behavior_non_peasant",
+            "work_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisherman",
+            "fisher_schedule",
+            "rpc:fishing_mode"
           ]
         }
       },
