@@ -2,4 +2,5 @@ pack.name=Fisherman Villager Addon RP
 pack.description=Resource pack for Fisherman Villager Addon: custom fishing rod item, hook texture, rope particles, and visuals.
 item.rpc:fishing_rod=Villager Fishing Rod
 item.rpc:shears=Shepherd Shears
+item.rpc:cleaver=Butcher Cleaver
 entity.rpc:fishing_bobber.name=Fishing Bobber

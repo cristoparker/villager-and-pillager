@@ -1,0 +1,25 @@
+{
+  "format_version": "1.20.50",
+  "minecraft:item": {
+    "description": {
+      "identifier": "rpc:cleaver",
+      "menu_category": {
+        "category": "equipment"
+      }
+    },
+    "components": {
+      "minecraft:icon": {
+        "textures": {
+          "default": "rpc_cleaver"
+        }
+      },
+      "minecraft:display_name": {
+        "value": "Butcher Cleaver"
+      },
+      "minecraft:max_stack_size": 1,
+      "minecraft:hand_equipped": {
+        "value": true
+      }
+    }
+  }
+}

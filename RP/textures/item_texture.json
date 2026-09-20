@@ -10,6 +10,15 @@
     },
     "shears": {
       "textures": "textures/items/shears"
+    },
+    "rpc_cleaver": {
+      "textures": "textures/items/cleaver"
+    },
+    "cleaver": {
+      "textures": "textures/items/cleaver"
+    },
+    "iron_axe": {
+      "textures": "textures/items/iron_axe"
     }
   }
 }

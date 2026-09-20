@@ -12,15 +12,7 @@
         "enchanted": "textures/misc/enchanted_item_glint"
       },
       "geometry": {
-        "default": "geometry.bow_standby"
-      },
-      "animations": {
-        "wield": "animation.bow.wield"
-      },
-      "scripts": {
-        "animate": [
-          "wield"
-        ]
+        "default": "geometry.shears"
       },
       "render_controllers": [
         "controller.render.item_default"

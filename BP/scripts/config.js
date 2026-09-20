@@ -83,3 +83,23 @@ export const SHEPHERD_CONFIG = {
         "minecraft:black_wool"        // 15
     ]
 };
+
+export const BUTCHER_CONFIG = {
+    // Search radius to look for cows and pigs (blocks)
+    ANIMAL_SEARCH_RADIUS: 24,
+    // Search radius for Smoker block workstation (blocks)
+    SMOKER_SEARCH_RADIUS: 32,
+    // Distance to slaughter animal
+    ATTACK_DISTANCE: 2.2,
+    // Distance to smoker to load meat and fuel
+    SMOKER_LOAD_DISTANCE: 2.5,
+    // Cooldown ticks after slaughter before hunting again (3 seconds)
+    HUNT_COOLDOWN_TICKS: 60,
+    // Slaughter swing duration in ticks
+    SLAUGHTER_ANIMATION_TICKS: 22,
+    // Items
+    CLEAVER_ITEM_ID: "rpc:cleaver",
+    VANILLA_AXE_ITEM_ID: "minecraft:iron_axe",
+    COAL_ITEM_ID: "minecraft:coal",
+    COAL_LOAD_AMOUNT: 2
+};

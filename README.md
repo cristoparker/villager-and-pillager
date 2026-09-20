@@ -1,6 +1,6 @@
 # Villager Professions Addon (Minecraft Bedrock)
 
-A modular, high-quality Minecraft Bedrock Behavior & Resource Pack that brings **Fisherman** and **Smart Shepherd** Villagers to life with realistic autonomous behaviors, authentic tools in hand, day/night sleeping schedules, and native Bedrock navigation.
+A modular, high-quality Minecraft Bedrock Behavior & Resource Pack that brings **Fisherman**, **Smart Shepherd**, and **Smart Butcher** Villagers to life with realistic autonomous behaviors, authentic tools in hand, workstation interactions, day/night sleeping schedules, and native Bedrock navigation.
 
 ![Minecraft Bedrock](https://img.shields.io/badge/Minecraft%20Bedrock-1.21+-green.svg)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
@@ -9,20 +9,41 @@ A modular, high-quality Minecraft Bedrock Behavior & Resource Pack that brings *
 
 ## Features
 
+### 🥩 Smart Butcher Villager
+- **Axe / Cleaver in Hand**:
+  - Visibly holds an **Iron Axe** or **Cleaver** (`minecraft:iron_axe` and `rpc:cleaver`) in hand using a custom attachable model.
+- **Hunting Cows & Pigs**:
+  - Scans up to **24 blocks** away for nearby adult pigs and cows (preserves baby animals).
+  - Uses native Bedrock `minecraft:behavior.follow_mob` pathfinding to smoothly walk up to animals without jumping or hopping.
+- **Slaughter & Meat Gathering**:
+  - When in range, swings weapon with attack sounds and particles.
+  - Drops raw porkchop or raw beef (and leather).
+  - Gathers the raw meat and celebrates with happy villager effects.
+- **Smoker Workstation Cooking**:
+  - Scans for the nearest **Smoker** block (`minecraft:smoker` or `minecraft:lit_smoker`) within 32 blocks (the Butcher's actual village POI workstation).
+  - Walks to the Smoker.
+  - Places **2 Coals** into Fuel Slot 1 and the **Raw Meat** into Cooking Slot 0.
+  - Plays smoker sizzling audio (`random.fizz`) and chimney smoke particles (`minecraft:smoker_smoke_particle`) as the meat begins cooking!
+- **Day / Night Sleeping Routine**:
+  - At sunset (`time >= 12000`), puts away weapon and sleeps in bed.
+  - At sunrise, wakes up, re-equips weapon, and resumes work.
+
+---
+
 ### 🐑 Smart Shepherd Villager
 - **Spawn With Leashed Sheep**:
   - Automatically spawns with **2 companion sheep** connected with a leash/rope to the villager, just like the Wandering Trader with llamas.
 - **Shears in Hand**:
-  - Actually holds shears in hand (`minecraft:shears` and `rpc:shears`) using a custom attachable connected to the villager's right arm.
-- **Smooth Native Movement (No Hardcoded Jumping)**:
-  - Uses Minecraft's native `minecraft:behavior.follow_mob` pathfinding to search and smoothly walk towards nearby sheep without conflict, jumping, or unnatural teleportation.
+  - Correctly holds shears in hand (`minecraft:shears` and `rpc:shears`) upright and facing forward at chest level.
+- **Smooth Native Movement**:
+  - Uses Minecraft's native `minecraft:behavior.follow_mob` pathfinding to search and smoothly walk towards nearby sheep without jumping or hopping.
 - **Authentic Shearing Action**:
   - Scans for nearby adult sheep with wool.
-  - When reaching the sheep, raises arms, snips shears with authentic `mob.sheep.shear` audio, wool pop particles, and triggers `minecraft:on_sheared`.
+  - Raises arms, snips shears with authentic `mob.sheep.shear` audio, wool pop particles, and triggers `minecraft:on_sheared`.
   - Drops 1 to 2 matching colored wool blocks according to the sheep's color.
-  - Celebrates with happy villager particles and positive villager sounds.
+  - Celebrates with happy villager particles and sounds.
 - **Day / Night Sleeping Routine**:
-  - At sunset (`time >= 12000`), puts away shears and walks to bed to sleep.
+  - At sunset (`time >= 12000`), puts away shears and sleeps in bed.
   - At sunrise (`time < 12000`), wakes up, re-equips shears, and returns to tending sheep.
 
 ---
@@ -30,27 +51,21 @@ A modular, high-quality Minecraft Bedrock Behavior & Resource Pack that brings *
 ### 🎣 Fisherman Villager
 - **Autonomous River & Water Detection**:
   - Scans up to **48 blocks** away for rivers and open water bodies.
-  - Smooth, level shore pathfinding without jumping or hopping.
-  - Villagers stand firmly on land at the water's edge and never walk or fall into the water.
+  - Smooth shore pathfinding; stands firmly on land and never falls into water.
 - **Realistic Projectile Throw & Reel-In Physics**:
-  - The fishing hook launches directly from the rod tip in the villager's hands in a natural ballistic arc.
-  - Water splash sounds and particles upon landing.
-  - Hook bobs naturally on the water surface with floating waves.
-  - When a fish bites, the hook tugs downward with water wake rings and bubbles.
-  - Full ballistic trajectory physics during reel-in: hook and caught fish item fly in an arc back to the villager's hands.
+  - Fishing hook launches directly from rod tip in natural ballistic arc.
+  - Hook bobs on water waves; tugs downward with wake rings and bubbles on bite.
+  - Full ballistic trajectory reel-in returning hook and caught fish to hands.
 - **Continuous Catenary Particle Rope**:
-  - Fine, delicate black particle string (50% opacity, 1/8th pixel scale).
-  - Dense spacing (~0.025 blocks) creating a continuous, seamless thread from rod tip to hook eyelet.
-  - Catenary curve physics with natural gravity sag when slack, and rapid tension vibration when a fish bites.
-  - Water surface boundary clamping prevents the rope from clipping beneath the water.
+  - Fine black particle string with gravity sag when slack, and tension vibration when a fish bites.
 - **Natural Day / Night Sleeping Schedule**:
-  - At sunset, packs up rod and sleeps in bed.
-  - At sunrise, resumes fishing at the shoreline.
+  - Sleeps in bed at night; resumes fishing at sunrise.
 
 ---
 
 ## Custom Content (Namespace: `rpc`)
 
+- `rpc:cleaver`: Custom Butcher Cleaver weapon equipped in main hand.
 - `rpc:shears`: Custom Shepherd Shears item equipped in main hand.
 - `rpc:fishing_rod`: Custom fishing rod item equipped in main hand.
 - `rpc:fishing_bobber`: Custom floating fishing bobber entity.
@@ -66,17 +81,12 @@ A modular, high-quality Minecraft Bedrock Behavior & Resource Pack that brings *
 3. Activate both packs in your world settings (ensure **Beta APIs** / Scripting is enabled).
 
 ### Development Mode
-Run `update_addon.bat` to mirror the Behavior Pack (`BP`) and Resource Pack (`RP`) directly into your Minecraft Bedrock `development_behavior_packs` and `development_resource_packs` directories.
+Run `update_addon.bat` to mirror the Behavior Pack (`BP`) and Resource Pack (`RP`) directly into your Minecraft Bedrock development directories.
 
 ---
 
 ## How to Use in Game
 
-### Shepherd:
-1. Find or spawn a Shepherd Villager, or **right-click any villager with shears** (`minecraft:shears` or `rpc:shears`).
-2. The Shepherd will spawn with 2 leashed sheep, hold shears in hand, and walk towards nearby sheep to shear them!
-3. Collect the fresh wool dropped by sheared sheep.
-
-### Fisherman:
-1. Find or spawn a Fisherman Villager, or **right-click any villager with `rpc:fishing_rod`**.
-2. If near water or a river within 48 blocks, the villager walks to the shore and fishes.
+- **Butcher**: Spawn a Butcher or right-click any villager with an **Iron Axe** or **Cleaver**. Watch them hunt pigs/cows, gather meat, and load coal & meat into the village Smoker!
+- **Shepherd**: Spawn a Shepherd or right-click any villager with **Shears**. Watch them spawn with 2 leashed sheep, hold shears upright in hand, and shear nearby sheep!
+- **Fisherman**: Spawn a Fisherman or right-click any villager with `rpc:fishing_rod`. Watch them find rivers, cast their hook, and reel in fresh fish!

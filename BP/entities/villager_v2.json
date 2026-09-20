@@ -12,7 +12,11 @@
           {
             "slot": 0,
             "accepted_items": [
-              "rpc:fishing_rod"
+              "rpc:fishing_rod",
+              "rpc:shears",
+              "minecraft:shears",
+              "rpc:cleaver",
+              "minecraft:iron_axe"
             ]
           }
         ]
@@ -275,6 +279,22 @@
       }
     },
     "component_groups": {
+      "rpc:approach_smoker": {
+        "minecraft:behavior.move_to_block": {
+          "priority": 3,
+          "tick_interval": 1,
+          "start_chance": 1.0,
+          "search_range": 32,
+          "search_height": 12,
+          "goal_radius": 2.0,
+          "speed_multiplier": 0.85,
+          "target_selection_method": "nearest",
+          "target_blocks": [
+            "minecraft:smoker",
+            "minecraft:lit_smoker"
+          ]
+        }
+      },
       "adult": {
         "minecraft:preferred_path": {
           "default_block_cost": 3,
@@ -996,6 +1016,26 @@
         },
         "minecraft:variant": {
           "value": 11
+        },
+        "minecraft:behavior.follow_mob": {
+          "priority": 4,
+          "speed_multiplier": 0.8,
+          "search_range": 24,
+          "stop_distance": 2.0,
+          "filters": {
+            "any_of": [
+              { "test": "is_family", "subject": "other", "value": "pig" },
+              { "test": "is_family", "subject": "other", "value": "cow" }
+            ]
+          }
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
         }
       },
       "behavior_peasant": {
@@ -2323,6 +2363,20 @@
       }
     },
     "events": {
+      "rpc:start_approach_smoker": {
+        "add": {
+          "component_groups": [
+            "rpc:approach_smoker"
+          ]
+        }
+      },
+      "rpc:stop_approach_smoker": {
+        "remove": {
+          "component_groups": [
+            "rpc:approach_smoker"
+          ]
+        }
+      },
       "become_witch": {
         "add": {
           "component_groups": [
@@ -2585,6 +2639,7 @@
             "job_specific_goals",
             "trade_components",
             "shepherd",
+            "butcher",
             "rpc:fishing_mode"
           ]
         }
@@ -2606,6 +2661,30 @@
             "job_specific_goals",
             "trade_components",
             "fisherman",
+            "butcher",
+            "fisher_schedule",
+            "rpc:fishing_mode"
+          ]
+        }
+      },
+      "rpc:become_butcher": {
+        "add": {
+          "component_groups": [
+            "butcher",
+            "adult",
+            "make_and_receive_love",
+            "behavior_non_peasant",
+            "work_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisherman",
+            "shepherd",
             "fisher_schedule",
             "rpc:fishing_mode"
           ]
