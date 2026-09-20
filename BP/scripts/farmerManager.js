@@ -32,7 +32,19 @@ import {
     findNearbyBabyAnimals,
     performFeedBabyAnimal,
     findNearbyBreedableAnimalPair,
-    performBreedAnimals
+    performBreedAnimals,
+    findNearbyChest,
+    findNearbyChestPlacementSpot,
+    findNearbyChestPlacementSpotNearExisting,
+    performPlaceChest,
+    performDepositCropIntoChest,
+    countNearbyBeds,
+    countNearbyVillagers,
+    findNearbyBedPlacementSpot,
+    performPlaceBed,
+    findNearbyVillagersToFeed,
+    performShareFoodWithVillager,
+    equipItem
 } from "./farmerBehavior.js";
 
 export const FarmerState = {
@@ -56,6 +68,14 @@ export const FarmerState = {
     PLANTING_SAPLING: "PLANTING_SAPLING",
     APPROACHING_BONEMEAL_SAPLING: "APPROACHING_BONEMEAL_SAPLING",
     BONEMEALING_SAPLING: "BONEMEALING_SAPLING",
+    APPROACHING_CHEST_SPOT: "APPROACHING_CHEST_SPOT",
+    PLACING_CHEST: "PLACING_CHEST",
+    APPROACHING_CHEST_DEPOSIT: "APPROACHING_CHEST_DEPOSIT",
+    DEPOSITING_CHEST: "DEPOSITING_CHEST",
+    APPROACHING_BED_SPOT: "APPROACHING_BED_SPOT",
+    PLACING_BED: "PLACING_BED",
+    APPROACHING_VILLAGER_FEED: "APPROACHING_VILLAGER_FEED",
+    FEEDING_VILLAGER: "FEEDING_VILLAGER",
     COOLDOWN: "COOLDOWN",
     SLEEPING: "SLEEPING"
 };
@@ -146,6 +166,13 @@ export class FarmerManager {
             saplingSpot: null,
             targetSapling: null,
             targetMonster: null,
+            chestSpot: null,
+            targetChest: null,
+            bedSpot: null,
+            targetFeedVillager: null,
+            bedCooldown: Math.floor(Math.random() * 400) + 200,
+            chestCooldown: Math.floor(Math.random() * 600) + 400,
+            foodShareCooldown: Math.floor(Math.random() * 200) + 100,
             timer: 20
         });
     }
@@ -210,6 +237,10 @@ export class FarmerManager {
      */
     updateFarmer(record, isNight) {
         const { villager } = record;
+
+        if (record.bedCooldown > 0) record.bedCooldown--;
+        if (record.chestCooldown > 0) record.chestCooldown--;
+        if (record.foodShareCooldown > 0) record.foodShareCooldown--;
 
         // Threat Priority: Check for nearby monsters threatening the farm (unless sleeping)
         if (record.state !== FarmerState.SLEEPING && record.state !== FarmerState.COMBAT) {
@@ -377,7 +408,65 @@ export class FarmerManager {
                         break;
                     }
 
-                    // 5. Chance-based secondary tasks: flowers, saplings, composter
+                    // 7. Free Bread Sharing: Farmers share bread with nearby villagers so everyone can breed in Minecraft's own breeding system!
+                    if (record.foodShareCooldown <= 0) {
+                        const villagerToFeed = findNearbyVillagersToFeed(villager.dimension, villager.location, FARMER_CONFIG.FOOD_SHARE_RADIUS);
+                        if (villagerToFeed) {
+                            record.targetFeedVillager = villagerToFeed;
+                            equipItem(villager, "minecraft:bread");
+                            const dist = distance(villager.location, villagerToFeed.location);
+                            if (dist <= 2.5) {
+                                record.state = FarmerState.FEEDING_VILLAGER;
+                                record.timer = 20;
+                            } else {
+                                record.state = FarmerState.APPROACHING_VILLAGER_FEED;
+                                record.timer = 80;
+                            }
+                            break;
+                        }
+                    }
+
+                    // 8. Farm Chest Management (Strict 20-block radius rule)
+                    // If a chest is found within 20 blocks: DO NOT place a new chest!
+                    // Instead, use the chest to deposit harvested produce and organize storage.
+                    // If NO chest is found in 20 blocks: place 1 community chest for everyone!
+                    const chest = findNearbyChest(villager.dimension, villager.location, FARMER_CONFIG.CHEST_SEARCH_RADIUS);
+                    if (chest) {
+                        // Chest found within 20 blocks: NEVER place a new chest!
+                        if (Math.random() < 0.35) {
+                            record.targetChest = chest;
+                            equipItem(villager, "minecraft:wheat");
+                            const dist = distance(villager.location, chest.pos);
+                            if (dist <= FARMER_CONFIG.CHEST_DEPOSIT_DISTANCE) {
+                                record.state = FarmerState.DEPOSITING_CHEST;
+                                record.timer = 25;
+                            } else {
+                                record.state = FarmerState.APPROACHING_CHEST_DEPOSIT;
+                                record.timer = 90;
+                            }
+                            break;
+                        }
+                    } else {
+                        // NO chest within 20 blocks! Place 1 community chest for everyone to use.
+                        if (record.chestCooldown <= 0) {
+                            const chestSpot = findNearbyChestPlacementSpot(villager.dimension, villager.location, 4);
+                            if (chestSpot) {
+                                record.chestSpot = chestSpot;
+                                equipItem(villager, "minecraft:chest");
+                                const dist = distance(villager.location, chestSpot.pos);
+                                if (dist <= 2.8) {
+                                    record.state = FarmerState.PLACING_CHEST;
+                                    record.timer = 20;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_CHEST_SPOT;
+                                    record.timer = 80;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    // 9. Chance-based secondary tasks: flowers, saplings, composter
                     const roll = Math.random();
                     if (roll < 0.35) {
                         const flowerSpot = findNearbyFlowerPlantingSpot(villager.dimension, villager.location, FARMER_CONFIG.FLOWER_SEARCH_RADIUS);
@@ -846,6 +935,207 @@ export class FarmerManager {
                     record.composter = null;
                     record.state = FarmerState.COOLDOWN;
                     record.timer = 40;
+                }
+                break;
+            }
+
+            case FarmerState.APPROACHING_CHEST_SPOT: {
+                record.timer--;
+                if (!record.chestSpot) {
+                    record.state = FarmerState.IDLE;
+                    equipHoe(villager);
+                    record.timer = 15;
+                    break;
+                }
+
+                try {
+                    const targetPos = { x: record.chestSpot.pos.x + 0.5, y: record.chestSpot.pos.y, z: record.chestSpot.pos.z + 0.5 };
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        equipItem(villager, "minecraft:chest");
+                    }
+                    const dx = targetPos.x - villager.location.x;
+                    const dz = targetPos.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, record.chestSpot.pos);
+                if (dist <= 2.5) {
+                    record.state = FarmerState.PLACING_CHEST;
+                    record.timer = 25;
+                } else if (record.timer <= 0) {
+                    record.chestSpot = null;
+                    record.state = FarmerState.IDLE;
+                    equipHoe(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case FarmerState.PLACING_CHEST: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.chestSpot) {
+                        performPlaceChest(villager, record.chestSpot.pos);
+                    }
+                    record.chestSpot = null;
+                    record.chestCooldown = FARMER_CONFIG.CHEST_COOLDOWN_TICKS;
+                    equipHoe(villager);
+                    record.state = FarmerState.COOLDOWN;
+                    record.timer = 30;
+                }
+                break;
+            }
+
+            case FarmerState.APPROACHING_CHEST_DEPOSIT: {
+                record.timer--;
+                if (!record.targetChest) {
+                    record.state = FarmerState.IDLE;
+                    equipHoe(villager);
+                    record.timer = 15;
+                    break;
+                }
+
+                try {
+                    const targetPos = { x: record.targetChest.pos.x + 0.5, y: record.targetChest.pos.y, z: record.targetChest.pos.z + 0.5 };
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        equipItem(villager, "minecraft:wheat");
+                    }
+                    const dx = targetPos.x - villager.location.x;
+                    const dz = targetPos.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, record.targetChest.pos);
+                if (dist <= FARMER_CONFIG.CHEST_DEPOSIT_DISTANCE) {
+                    record.state = FarmerState.DEPOSITING_CHEST;
+                    record.timer = 25;
+                } else if (record.timer <= 0) {
+                    record.targetChest = null;
+                    record.state = FarmerState.IDLE;
+                    equipHoe(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case FarmerState.DEPOSITING_CHEST: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetChest) {
+                        performDepositCropIntoChest(villager, record.targetChest.block);
+                    }
+                    record.targetChest = null;
+                    record.chestCooldown = Math.floor(FARMER_CONFIG.CHEST_COOLDOWN_TICKS / 2);
+                    equipHoe(villager);
+                    record.state = FarmerState.COOLDOWN;
+                    record.timer = 30;
+                }
+                break;
+            }
+
+            case FarmerState.APPROACHING_BED_SPOT: {
+                record.timer--;
+                if (!record.bedSpot) {
+                    record.state = FarmerState.IDLE;
+                    equipHoe(villager);
+                    record.timer = 15;
+                    break;
+                }
+
+                try {
+                    const targetPos = { x: record.bedSpot.footPos.x + 0.5, y: record.bedSpot.footPos.y, z: record.bedSpot.footPos.z + 0.5 };
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        equipItem(villager, "minecraft:bed");
+                    }
+                    const dx = targetPos.x - villager.location.x;
+                    const dz = targetPos.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, record.bedSpot.footPos);
+                if (dist <= 2.5) {
+                    record.state = FarmerState.PLACING_BED;
+                    record.timer = 25;
+                } else if (record.timer <= 0) {
+                    record.bedSpot = null;
+                    record.state = FarmerState.IDLE;
+                    equipHoe(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case FarmerState.PLACING_BED: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.bedSpot) {
+                        performPlaceBed(villager, record.bedSpot);
+                    }
+                    record.bedSpot = null;
+                    record.bedCooldown = FARMER_CONFIG.BED_COOLDOWN_TICKS;
+                    equipHoe(villager);
+                    record.state = FarmerState.COOLDOWN;
+                    record.timer = 30;
+                }
+                break;
+            }
+
+            case FarmerState.APPROACHING_VILLAGER_FEED: {
+                record.timer--;
+                if (!record.targetFeedVillager || !record.targetFeedVillager.isValid()) {
+                    record.state = FarmerState.IDLE;
+                    record.targetFeedVillager = null;
+                    equipHoe(villager);
+                    record.timer = 15;
+                    break;
+                }
+
+                const targetLoc = record.targetFeedVillager.location;
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetLoc);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        equipItem(villager, "minecraft:bread");
+                    }
+                    const dx = targetLoc.x - villager.location.x;
+                    const dz = targetLoc.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, targetLoc);
+                if (dist <= 2.5) {
+                    record.state = FarmerState.FEEDING_VILLAGER;
+                    record.timer = 20;
+                } else if (record.timer <= 0) {
+                    record.targetFeedVillager = null;
+                    record.state = FarmerState.IDLE;
+                    equipHoe(villager);
+                    record.timer = 15;
+                }
+                break;
+            }
+
+            case FarmerState.FEEDING_VILLAGER: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetFeedVillager && record.targetFeedVillager.isValid()) {
+                        performShareFoodWithVillager(villager, record.targetFeedVillager);
+                    }
+                    record.targetFeedVillager = null;
+                    record.foodShareCooldown = FARMER_CONFIG.FOOD_SHARE_COOLDOWN_TICKS;
+                    equipHoe(villager);
+                    record.state = FarmerState.COOLDOWN;
+                    record.timer = 25;
                 }
                 break;
             }

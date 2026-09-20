@@ -84,7 +84,7 @@ export const PROFESSION_DATA = {
         variant: 8,
         family: "armorer",
         defaultItem: "minecraft:iron_ingot",
-        allowedItems: ["minecraft:iron_ingot", "minecraft:shield", "minecraft:iron_chestplate"],
+        allowedItems: ["minecraft:iron_ingot", "minecraft:iron_chestplate"],
         tag: "armorer",
         rpcTag: "rpc:armorer",
         displayName: "§7[Armorer]"

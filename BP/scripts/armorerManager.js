@@ -12,7 +12,6 @@ import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipIngot,
     unequipIngot,
-    equipShield,
     equipChestplate,
     findNearbyDamagedGolem,
     findNearbyBlastFurnace,
@@ -22,15 +21,17 @@ import {
     performFortifyAlly,
     findNearbyAnvil,
     performHammerAnvil,
-    findNearbyHostiles,
-    performShieldBlock,
     hasIronGolemNearby,
-    performConstructGolem
+    performConstructGolem,
+    equipIronBlock,
+    equipPumpkin,
+    findNearbyRaidThreat,
+    findNearbyGolemConstructionSpot,
+    performAssembleRaidGolem
 } from "./armorerBehavior.js";
 
 export const ArmorerState = {
     IDLE: "IDLE",
-    SHIELD_BLOCK: "SHIELD_BLOCK",
     APPROACHING_GOLEM: "APPROACHING_GOLEM",
     REPAIRING: "REPAIRING",
     APPROACHING_ALLY: "APPROACHING_ALLY",
@@ -41,6 +42,8 @@ export const ArmorerState = {
     FORGING: "FORGING",
     APPROACHING_GOLEM_FORGE: "APPROACHING_GOLEM_FORGE",
     CONSTRUCTING_GOLEM: "CONSTRUCTING_GOLEM",
+    APPROACHING_RAID_GOLEM_SPOT: "APPROACHING_RAID_GOLEM_SPOT",
+    BUILDING_RAID_GOLEM: "BUILDING_RAID_GOLEM",
     COOLDOWN: "COOLDOWN",
     SLEEPING: "SLEEPING"
 };
@@ -123,6 +126,8 @@ export class ArmorerManager {
             villager: villager,
             targetGolem: null,
             blastFurnace: null,
+            golemSpot: null,
+            raidGolemCooldown: 0,
             timer: 20
         });
     }
@@ -184,16 +189,9 @@ export class ArmorerManager {
     updateArmorer(record, isNight) {
         const { villager } = record;
 
-        // Threat Check: Hostile monsters nearby -> Shield defense!
-        if (record.state !== ArmorerState.SLEEPING && record.state !== ArmorerState.SHIELD_BLOCK) {
-            const monster = findNearbyHostiles(villager.dimension, villager.location, 6);
-            if (monster) {
-                record.targetMonster = monster;
-                record.state = ArmorerState.SHIELD_BLOCK;
-                record.timer = 20;
-                equipShield(villager);
-            }
-        }
+        if (record.raidGolemCooldown > 0) record.raidGolemCooldown--;
+
+
 
         switch (record.state) {
             case ArmorerState.SLEEPING: {
@@ -208,31 +206,34 @@ export class ArmorerManager {
                 break;
             }
 
-            case ArmorerState.SHIELD_BLOCK: {
-                record.timer--;
-                if (!record.targetMonster || !record.targetMonster.isValid()) {
-                    record.state = ArmorerState.IDLE;
-                    record.targetMonster = null;
-                    equipIngot(villager);
-                    record.timer = 10;
-                    break;
-                }
-
-                performShieldBlock(villager, record.targetMonster);
-                if (record.timer <= 0) {
-                    record.targetMonster = null;
-                    equipIngot(villager);
-                    record.state = ArmorerState.COOLDOWN;
-                    record.timer = 30;
-                }
-                break;
-            }
-
             case ArmorerState.IDLE: {
                 record.timer--;
                 if (record.timer <= 0) {
                     record.timer = 25;
                     equipIngot(villager);
+
+                    // 0. RAID DEFENSE PRIORITY: If raid / hostile assault detected and no Iron Golem nearby, build one!
+                    if (record.raidGolemCooldown <= 0) {
+                        const raidThreat = findNearbyRaidThreat(villager.dimension, villager.location, ARMORER_CONFIG.RAID_SEARCH_RADIUS || 24);
+                        if (raidThreat && !hasIronGolemNearby(villager.dimension, villager.location, ARMORER_CONFIG.RAID_GOLEM_BUILD_RADIUS || 24)) {
+                            const golemSpot = findNearbyGolemConstructionSpot(villager.dimension, villager.location, 10);
+                            if (golemSpot) {
+                                record.golemSpot = golemSpot;
+                                equipIronBlock(villager);
+                                const dist = distance(villager.location, golemSpot.center);
+                                if (dist <= 3.0) {
+                                    record.state = ArmorerState.BUILDING_RAID_GOLEM;
+                                    record.timer = 40;
+                                    record.raidGolemCooldown = ARMORER_CONFIG.GOLEM_BUILD_COOLDOWN_TICKS || 400;
+                                    performAssembleRaidGolem(villager, golemSpot);
+                                } else {
+                                    record.state = ArmorerState.APPROACHING_RAID_GOLEM_SPOT;
+                                    record.timer = 100;
+                                }
+                                break;
+                            }
+                        }
+                    }
 
                     // 1. Primary: Scan for damaged Iron Golems to repair
                     const golem = findNearbyDamagedGolem(villager.dimension, villager.location, ARMORER_CONFIG.GOLEM_SEARCH_RADIUS);
@@ -531,6 +532,55 @@ export class ArmorerManager {
                         performForgeArmor(villager, record.blastFurnace);
                     }
                     record.blastFurnace = null;
+                    record.state = ArmorerState.COOLDOWN;
+                    record.timer = 40;
+                }
+                break;
+            }
+
+            case ArmorerState.APPROACHING_RAID_GOLEM_SPOT: {
+                record.timer--;
+                if (!record.golemSpot) {
+                    record.state = ArmorerState.IDLE;
+                    equipIngot(villager);
+                    record.timer = 15;
+                    break;
+                }
+
+                const targetPos = { x: record.golemSpot.center.x + 0.5, y: record.golemSpot.center.y, z: record.golemSpot.center.z + 0.5 };
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        equipIronBlock(villager);
+                    }
+                    const dx = targetPos.x - villager.location.x;
+                    const dz = targetPos.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, record.golemSpot.center);
+                if (dist <= 3.0) {
+                    record.state = ArmorerState.BUILDING_RAID_GOLEM;
+                    record.timer = 40;
+                    record.raidGolemCooldown = ARMORER_CONFIG.GOLEM_BUILD_COOLDOWN_TICKS || 400;
+                    performAssembleRaidGolem(villager, record.golemSpot);
+                } else if (record.timer <= 0) {
+                    record.golemSpot = null;
+                    record.state = ArmorerState.IDLE;
+                    equipIngot(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case ArmorerState.BUILDING_RAID_GOLEM: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    record.golemSpot = null;
+                    record.raidGolemCooldown = ARMORER_CONFIG.GOLEM_BUILD_COOLDOWN_TICKS || 400;
+                    equipIngot(villager);
                     record.state = ArmorerState.COOLDOWN;
                     record.timer = 40;
                 }

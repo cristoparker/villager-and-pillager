@@ -8,9 +8,70 @@
  * 4. Village Workbench Expansion: placing workstations for new villagers to adopt professions.
  */
 
-import { world, ItemStack, EquipmentSlot } from "@minecraft/server";
+import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { EXPANSION_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace, isReplaceableSpace } from "./utils.js";
+import { getVillagerProfession } from "./professionHelper.js";
+
+export const PROFESSION_WORKBENCH_MAP = {
+    farmer: "minecraft:composter",
+    fisherman: "minecraft:barrel",
+    shepherd: "minecraft:loom",
+    fletcher: "minecraft:fletching_table",
+    librarian: "minecraft:lectern",
+    cartographer: "minecraft:cartography_table",
+    cleric: "minecraft:brewing_stand",
+    armorer: "minecraft:blast_furnace",
+    weaponsmith: "minecraft:grindstone",
+    toolsmith: "minecraft:smithing_table",
+    butcher: "minecraft:smoker",
+    leatherworker: "minecraft:cauldron",
+    mason: "minecraft:stonecutter"
+};
+
+// Global area placement cooldown registries to prevent simultaneous spam
+const recentBedAreaPlacements = new Map();
+const recentChestAreaPlacements = new Map();
+const recentWorkbenchAreaPlacements = new Map();
+
+function isAreaBedCooldown(dimension, location) {
+    if (!dimension || !location) return false;
+    const key = `${dimension.id}:${Math.floor(location.x / 16)},${Math.floor(location.z / 16)}`;
+    const expires = recentBedAreaPlacements.get(key) || 0;
+    return Date.now() < expires;
+}
+
+function setAreaBedCooldown(dimension, location, durationMs = 300000) {
+    if (!dimension || !location) return;
+    const key = `${dimension.id}:${Math.floor(location.x / 16)},${Math.floor(location.z / 16)}`;
+    recentBedAreaPlacements.set(key, Date.now() + durationMs);
+}
+
+function isAreaChestCooldown(dimension, location) {
+    if (!dimension || !location) return false;
+    const key = `${dimension.id}:${Math.floor(location.x / 20)},${Math.floor(location.z / 20)}`;
+    const expires = recentChestAreaPlacements.get(key) || 0;
+    return Date.now() < expires;
+}
+
+function setAreaChestCooldown(dimension, location, durationMs = 300000) {
+    if (!dimension || !location) return;
+    const key = `${dimension.id}:${Math.floor(location.x / 20)},${Math.floor(location.z / 20)}`;
+    recentChestAreaPlacements.set(key, Date.now() + durationMs);
+}
+
+function isAreaWorkbenchCooldown(dimension, location) {
+    if (!dimension || !location) return false;
+    const key = `${dimension.id}:${Math.floor(location.x / 8)},${Math.floor(location.z / 8)}`;
+    const expires = recentWorkbenchAreaPlacements.get(key) || 0;
+    return Date.now() < expires;
+}
+
+function setAreaWorkbenchCooldown(dimension, location, durationMs = 60000) {
+    if (!dimension || !location) return;
+    const key = `${dimension.id}:${Math.floor(location.x / 8)},${Math.floor(location.z / 8)}`;
+    recentWorkbenchAreaPlacements.set(key, Date.now() + durationMs);
+}
 
 export const ExpansionState = {
     IDLE: "IDLE",
@@ -42,7 +103,7 @@ export function notifyDroppedItem(villager, itemEntity) {
 
 export class VillageExpansionManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, carriedItems: Array<{ typeId: string, amount: number }>, targetItemEntity: Entity|null, targetChest: any, placementSpot: Vector3|null, targetWorkbenchType: string|null, bedCooldown: number, workbenchCooldown: number, depositCooldown: number, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, carriedItems: Array<{ typeId: string, amount: number }>, targetItemEntity: Entity|null, targetChest: any, placementSpot: Vector3|null, targetWorkbenchType: string|null, bedCooldown: number, workbenchCooldown: number, depositCooldown: number, chestCooldown: number, breedCooldown: number, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -74,9 +135,11 @@ export class VillageExpansionManager {
             targetChest: null,
             placementSpot: null,
             targetWorkbenchType: null,
-            bedCooldown: Math.floor(Math.random() * 600) + 400, // Stagger initial cooldowns
-            workbenchCooldown: Math.floor(Math.random() * 800) + 600,
+            bedCooldown: Math.floor(Math.random() * 1200) + 600, // 30-90s initial cooldown, beds not frequent!
+            workbenchCooldown: 20, // 1 second! Check immediately if workbench is needed!
             depositCooldown: 0,
+            chestCooldown: 40, // 2 seconds initial check
+            breedCooldown: 200,
             timer: 20
         });
     }
@@ -178,6 +241,8 @@ export class VillageExpansionManager {
             if (record.bedCooldown > 0) record.bedCooldown--;
             if (record.workbenchCooldown > 0) record.workbenchCooldown--;
             if (record.depositCooldown > 0) record.depositCooldown--;
+            if (record.chestCooldown > 0) record.chestCooldown--;
+            if (record.breedCooldown > 0) record.breedCooldown--;
 
             this.updateVillager(record);
         }
@@ -207,59 +272,107 @@ export class VillageExpansionManager {
                         break;
                     }
 
-                    // 2. PRIORITY 2: If carrying collected goods, search for village chest to deposit (Copper Golem style!)
-                    if (record.carriedItems.length > 0 && record.depositCooldown <= 0) {
-                        const chest = this.findNearbyChest(dim, vLoc, EXPANSION_CONFIG.CHEST_SEARCH_RADIUS);
-                        if (chest) {
-                            record.targetChest = chest;
-                            const d = distance(vLoc, chest.pos);
+                    // 2. PRIORITY 2: Village Workbench Autonomous Placement!
+                    // If a villager does not find their own workbench nearby, they immediately place it adjacent to themselves!
+                    if (record.workbenchCooldown <= 0) {
+                        const prof = getVillagerProfession(villager);
+                        const neededWorkbench = (prof && PROFESSION_WORKBENCH_MAP[prof]) ? PROFESSION_WORKBENCH_MAP[prof] : null;
+
+                        // For specific profession, check 10 blocks. For unemployed/nitwit, check only 6 blocks.
+                        const searchRadius = neededWorkbench ? 10 : 6;
+                        const hasWorkbench = this.hasNearbyWorkbench(dim, vLoc, neededWorkbench, searchRadius);
+                        if (!hasWorkbench && !isAreaWorkbenchCooldown(dim, vLoc)) {
+                            const wbSpot = this.findNearbyWorkbenchPlacementSpot(dim, vLoc, 3);
+                            if (wbSpot) {
+                                record.placementSpot = wbSpot;
+                                if (neededWorkbench) {
+                                    record.targetWorkbenchType = neededWorkbench;
+                                } else {
+                                    const wbList = EXPANSION_CONFIG.WORKBENCH_BLOCK_IDS;
+                                    record.targetWorkbenchType = wbList[Math.floor(Math.random() * wbList.length)];
+                                }
+
+                                const d = distance(vLoc, wbSpot);
+                                if (d <= 2.8) {
+                                    record.state = ExpansionState.PLACING_WORKBENCH;
+                                    record.timer = 15;
+                                } else {
+                                    record.state = ExpansionState.APPROACHING_WORKBENCH_SPOT;
+                                    record.timer = 80;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    // 3. PRIORITY 3: Village Community Chest Management (Strict 20-block radius rule)
+                    // If villagers find any chest within 20 blocks, they NEVER place another chest;
+                    // instead ALL villagers use the chest to deposit goods and organize!
+                    // If NO chest exists within 20 blocks, they place 1 community chest for everyone.
+                    const nearbyChest = this.findNearbyChest(dim, vLoc, EXPANSION_CONFIG.CHEST_SEARCH_RADIUS);
+                    if (nearbyChest) {
+                        // Chest found within 20 blocks: NEVER place a new chest!
+                        // If holding carried items, walk over and deposit into the community chest.
+                        if (record.carriedItems.length > 0 && record.depositCooldown <= 0) {
+                            record.targetChest = nearbyChest;
+                            const d = distance(vLoc, nearbyChest.pos);
                             if (d <= EXPANSION_CONFIG.CHEST_DEPOSIT_DISTANCE) {
                                 record.state = ExpansionState.DEPOSITING_CHEST;
                                 record.timer = 25;
                             } else {
                                 record.state = ExpansionState.APPROACHING_CHEST;
-                                record.timer = 120;
+                                record.timer = 100;
                             }
                             break;
-                        } else {
-                            // No chest found in village: find a spot to build a new community chest!
-                            const chestSpot = this.findNearbyChestPlacementSpot(dim, vLoc, 6);
+                        }
+                    } else {
+                        // NO chest found in 20 blocks radius!
+                        // Place 1 community chest for the entire area so all villagers can use it.
+                        if (record.chestCooldown <= 0 && !isAreaChestCooldown(dim, vLoc)) {
+                            const chestSpot = this.findNearbyChestPlacementSpot(dim, vLoc, 4);
                             if (chestSpot) {
                                 record.placementSpot = chestSpot;
-                                record.state = ExpansionState.APPROACHING_CHEST_SPOT;
-                                record.timer = 100;
+                                const d = distance(vLoc, chestSpot);
+                                if (d <= 2.8) {
+                                    record.state = ExpansionState.PLACING_CHEST;
+                                    record.timer = 20;
+                                } else {
+                                    record.state = ExpansionState.APPROACHING_CHEST_SPOT;
+                                    record.timer = 80;
+                                }
                                 break;
                             }
                         }
                     }
 
-                    // 3. PRIORITY 3: Village Bed Expansion (Enables Breeding!)
-                    // Checks if beds count in vicinity is less than or equal to local villagers count
-                    if (record.bedCooldown <= 0 && Math.random() < 0.25) {
+                    // 4. PRIORITY 4: Village Bed Expansion (Enables Breeding, strictly low frequency)
+                    // Responsively places beds in open areas when a bed deficit exists, never replacing existing blocks
+                    if (record.bedCooldown <= 0 && !isAreaBedCooldown(dim, vLoc)) {
                         const localBeds = this.countNearbyBeds(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
                         const localVillagers = this.countNearbyVillagers(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
 
-                        if (localBeds < localVillagers + EXPANSION_CONFIG.MAX_LOCAL_BEDS_SURPLUS) {
+                        if (localBeds < localVillagers && Math.random() < 0.20) {
                             const bedSpot = this.findNearbyBedPlacementSpot(dim, vLoc, 8);
                             if (bedSpot) {
                                 record.placementSpot = bedSpot;
-                                record.state = ExpansionState.APPROACHING_BED_SPOT;
-                                record.timer = 100;
+                                const targetPos = bedSpot.footPos || bedSpot;
+                                const d = distance(vLoc, targetPos);
+                                if (d <= 2.8) {
+                                    record.state = ExpansionState.PLACING_BED;
+                                    record.timer = 20;
+                                } else {
+                                    record.state = ExpansionState.APPROACHING_BED_SPOT;
+                                    record.timer = 90;
+                                }
                                 break;
                             }
                         }
                     }
 
-                    // 4. PRIORITY 4: Village Workbench Expansion (New Jobs for Villagers!)
-                    if (record.workbenchCooldown <= 0 && Math.random() < 0.20) {
-                        const wbSpot = this.findNearbyWorkbenchPlacementSpot(dim, vLoc, 8);
-                        if (wbSpot) {
-                            record.placementSpot = wbSpot;
-                            // Pick a random workstation
-                            const wbList = EXPANSION_CONFIG.WORKBENCH_BLOCK_IDS;
-                            record.targetWorkbenchType = wbList[Math.floor(Math.random() * wbList.length)];
-                            record.state = ExpansionState.APPROACHING_WORKBENCH_SPOT;
-                            record.timer = 100;
+                    // 5. PRIORITY 5: Villager Breeding System Check
+                    if (record.breedCooldown <= 0) {
+                        if (this.tryPerformQuickBreeding(villager, record, dim, vLoc)) {
+                            record.timer = 35;
                             break;
                         }
                     }
@@ -355,9 +468,9 @@ export class VillageExpansionManager {
 
                 const spot = record.placementSpot;
                 const d = distance(vLoc, spot);
-                if (d <= 2.2) {
+                if (d <= 2.8) {
                     record.state = ExpansionState.PLACING_CHEST;
-                    record.timer = 25;
+                    record.timer = 20;
                     break;
                 }
 
@@ -365,6 +478,8 @@ export class VillageExpansionManager {
                     if (record.timer % 10 === 0) {
                         const rot = getLookRotation(vLoc, spot);
                         villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:chest", 1));
                     }
                     const dx = spot.x + 0.5 - vLoc.x;
                     const dz = spot.z + 0.5 - vLoc.z;
@@ -382,6 +497,7 @@ export class VillageExpansionManager {
                     }
                     record.placementSpot = null;
                     record.depositCooldown = 300;
+                    record.chestCooldown = EXPANSION_CONFIG.CHEST_COOLDOWN_TICKS;
                     record.state = ExpansionState.COOLDOWN;
                     record.timer = 40;
                 }
@@ -398,20 +514,23 @@ export class VillageExpansionManager {
                 }
 
                 const spot = record.placementSpot;
-                const d = distance(vLoc, spot);
-                if (d <= 2.2) {
+                const targetPos = spot.footPos || spot;
+                const d = distance(vLoc, targetPos);
+                if (d <= 2.8) {
                     record.state = ExpansionState.PLACING_BED;
-                    record.timer = 25;
+                    record.timer = 20;
                     break;
                 }
 
                 try {
                     if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, spot);
+                        const rot = getLookRotation(vLoc, targetPos);
                         villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:bed", 1));
                     }
-                    const dx = spot.x + 0.5 - vLoc.x;
-                    const dz = spot.z + 0.5 - vLoc.z;
+                    const dx = targetPos.x + 0.5 - vLoc.x;
+                    const dz = targetPos.z + 0.5 - vLoc.z;
                     const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
                     villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
                 } catch {}
@@ -443,9 +562,9 @@ export class VillageExpansionManager {
 
                 const spot = record.placementSpot;
                 const d = distance(vLoc, spot);
-                if (d <= 2.2) {
+                if (d <= 2.8) {
                     record.state = ExpansionState.PLACING_WORKBENCH;
-                    record.timer = 25;
+                    record.timer = 15;
                     break;
                 }
 
@@ -453,6 +572,10 @@ export class VillageExpansionManager {
                     if (record.timer % 10 === 0) {
                         const rot = getLookRotation(vLoc, spot);
                         villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
+                        if (record.targetWorkbenchType) {
+                            const equippable = villager.getComponent("minecraft:equippable");
+                            equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(record.targetWorkbenchType, 1));
+                        }
                     }
                     const dx = spot.x + 0.5 - vLoc.x;
                     const dz = spot.z + 0.5 - vLoc.z;
@@ -472,7 +595,7 @@ export class VillageExpansionManager {
                     record.targetWorkbenchType = null;
                     record.workbenchCooldown = EXPANSION_CONFIG.WORKBENCH_COOLDOWN_TICKS;
                     record.state = ExpansionState.COOLDOWN;
-                    record.timer = 40;
+                    record.timer = 30;
                 }
                 break;
             }
@@ -577,7 +700,8 @@ export class VillageExpansionManager {
     }
 
     /**
-     * Finds a nearby Chest or Barrel container block.
+     * Finds a nearby Chest or Barrel container block within radius.
+     * Scans every coordinate (no skipping) to guarantee existing chests are always found.
      * @param {Dimension} dimension 
      * @param {Vector3} location 
      * @param {number} radius 
@@ -587,21 +711,29 @@ export class VillageExpansionManager {
         const ox = Math.floor(location.x);
         const oy = Math.floor(location.y);
         const oz = Math.floor(location.z);
+        const r = Math.min(radius, 20);
 
-        for (let dx = -radius; dx <= radius; dx += 2) {
-            for (let dz = -radius; dz <= radius; dz += 2) {
+        let closest = null;
+        let closestDist = Infinity;
+
+        for (let dx = -r; dx <= r; dx++) {
+            for (let dz = -r; dz <= r; dz++) {
                 for (let dy = -2; dy <= 3; dy++) {
                     const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                     try {
                         const block = dimension.getBlock(pos);
                         if (block && EXPANSION_CONFIG.CHEST_BLOCK_IDS.includes(block.typeId)) {
-                            return { block, pos };
+                            const d = distance(location, pos);
+                            if (d < closestDist) {
+                                closestDist = d;
+                                closest = { block, pos };
+                            }
                         }
                     } catch {}
                 }
             }
         }
-        return null;
+        return closest;
     }
 
     /**
@@ -659,39 +791,57 @@ export class VillageExpansionManager {
     }
 
     /**
-     * Finds an open solid ground location suitable for placing a community chest.
+     * Finds an open solid ground location near the villager suitable for placing a community chest.
+     * Orders checks from 1 to 4 blocks away, ensuring close and reachable placement on solid ground.
      * @param {Dimension} dimension 
      * @param {Vector3} location 
      * @param {number} radius 
      */
-    findNearbyChestPlacementSpot(dimension, location, radius = 6) {
+    findNearbyChestPlacementSpot(dimension, location, radius = 4) {
         if (!dimension || !location) return null;
         const ox = Math.floor(location.x);
         const oy = Math.floor(location.y);
         const oz = Math.floor(location.z);
 
-        for (let dx = -radius; dx <= radius; dx += 2) {
-            for (let dz = -radius; dz <= radius; dz += 2) {
-                for (let dy = -1; dy <= 2; dy++) {
-                    const groundPos = { x: ox + dx, y: oy + dy, z: oz + dz };
-                    const airPos = { x: groundPos.x, y: groundPos.y + 1, z: groundPos.z };
-
-                    try {
-                        const ground = dimension.getBlock(groundPos);
-                        const air = dimension.getBlock(airPos);
-
-                        if (ground && ground.isSolid && !ground.isAir && air && air.isAir) {
-                            return airPos;
-                        }
-                    } catch {}
+        const offsets = [];
+        for (let r = 1; r <= radius; r++) {
+            for (let dx = -r; dx <= r; dx++) {
+                for (let dz = -r; dz <= r; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) === r) {
+                        offsets.push({ dx, dz });
+                    }
                 }
+            }
+        }
+
+        for (const off of offsets) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const groundPos = { x: ox + off.dx, y: oy + dy - 1, z: oz + off.dz };
+                const spotPos = { x: ox + off.dx, y: oy + dy, z: oz + off.dz };
+                const abovePos = { x: ox + off.dx, y: oy + dy + 1, z: oz + off.dz };
+
+                try {
+                    const ground = dimension.getBlock(groundPos);
+                    const spot = dimension.getBlock(spotPos);
+                    const above = dimension.getBlock(abovePos);
+
+                    if (isSolidGround(ground) && 
+                        isReplaceableSpace(spot) && 
+                        !spot.typeId.includes("bed") && 
+                        !spot.typeId.includes("chest") && 
+                        !spot.typeId.includes("door") &&
+                        (isReplaceableSpace(above) || above?.isAir)) {
+                        return spotPos;
+                    }
+                } catch {}
             }
         }
         return null;
     }
 
     /**
-     * Places a new chest and immediately deposits all carried items into it.
+     * Places a new community chest and deposits all carried items into it.
+     * Sets a 5-minute area cooldown across the 20-block radius so no duplicate chests are placed.
      * @param {Entity} villager 
      * @param {Vector3} spot 
      * @param {object} record 
@@ -703,15 +853,19 @@ export class VillageExpansionManager {
         try {
             const rot = getLookRotation(villager.location, spot);
             villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            const equippable = villager.getComponent("minecraft:equippable");
+            equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:chest", 1));
             villager.playAnimation("animation.villager.raise_arms");
         } catch {}
 
         const block = dim.getBlock(spot);
-        if (!block || !block.isAir) return false;
+        if (!block || !isReplaceableSpace(block)) return false;
 
         const placed = setBlockSafe(block, "minecraft:chest") || setBlockSafe(block, "minecraft:barrel");
         if (placed) {
+            setAreaChestCooldown(dim, spot, 300000); // 5-minute area cooldown for 20-block grid
             playSoundSafe(dim, "dig.wood", spot, { volume: 0.9, pitch: 1.0 });
+            playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
             spawnParticleSafe(dim, "minecraft:villager_happy", { x: spot.x + 0.5, y: spot.y + 1.0, z: spot.z + 0.5 });
             this.performDepositItems(villager, block, record);
             return true;
@@ -720,7 +874,113 @@ export class VillageExpansionManager {
     }
 
     /**
-     * Counts nearby beds within radius.
+     * Autonomous rapid breeding system:
+     * When there are more beds than villagers in the village, adult villagers
+     * close to each other will quickly breed, ensuring village numbers never deplete!
+     * @param {Entity} villager 
+     * @param {object} record 
+     * @param {Dimension} dim 
+     * @param {Vector3} vLoc 
+     * @returns {boolean}
+     */
+    tryPerformQuickBreeding(villager, record, dim, vLoc) {
+        if (!villager || !villager.isValid() || record.breedCooldown > 0) return false;
+
+        const localBeds = this.countNearbyBeds(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
+        const localVillagers = this.countNearbyVillagers(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
+
+        // Only breed if surplus beds exist in the village!
+        if (localBeds <= localVillagers) return false;
+
+        // Find a nearby adult villager partner within 5.5 blocks
+        try {
+            let candidates = [];
+            try {
+                candidates = dim.getEntities({
+                    type: "minecraft:villager_v2",
+                    location: vLoc,
+                    maxDistance: 5.5
+                });
+            } catch {}
+
+            for (const partner of candidates) {
+                if (!partner || !partner.isValid() || partner.id === villager.id) continue;
+                if (partner.hasTag("rpc:baby_villager") || partner.hasTag("rpc:recently_bred")) continue;
+
+                // Turn to face each other
+                const pLoc = partner.location;
+                const rotA = getLookRotation(vLoc, pLoc);
+                const rotB = getLookRotation(pLoc, vLoc);
+                try {
+                    villager.teleport(vLoc, { rotation: { x: 0, y: rotA.y } });
+                    partner.teleport(pLoc, { rotation: { x: 0, y: rotB.y } });
+                    villager.playAnimation("animation.villager.raise_arms");
+                    partner.playAnimation("animation.villager.raise_arms");
+                } catch {}
+
+                // Emit heart particles between both parents
+                const midX = (vLoc.x + pLoc.x) / 2;
+                const midY = (vLoc.y + pLoc.y) / 2 + 0.8;
+                const midZ = (vLoc.z + pLoc.z) / 2;
+
+                spawnParticleSafe(dim, "minecraft:heart_particle", { x: midX, y: midY + 0.4, z: midZ });
+                spawnParticleSafe(dim, "minecraft:heart_particle", { x: vLoc.x, y: vLoc.y + 1.2, z: vLoc.z });
+                spawnParticleSafe(dim, "minecraft:heart_particle", { x: pLoc.x, y: pLoc.y + 1.2, z: pLoc.z });
+
+                playSoundSafe(dim, "mob.villager.yes", vLoc, { volume: 0.9, pitch: 1.1 });
+                playSoundSafe(dim, "random.pop", { x: midX, y: midY, z: midZ }, { volume: 0.8, pitch: 1.2 });
+
+                // Spawn baby villager
+                try {
+                    const baby = dim.spawnEntity("minecraft:villager_v2", { x: midX, y: vLoc.y, z: midZ });
+                    if (baby && baby.isValid()) {
+                        baby.triggerEvent("minecraft:entity_born");
+                        baby.triggerEvent("minecraft:spawn_baby");
+                        baby.addTag("rpc:baby_villager");
+                        spawnParticleSafe(dim, "minecraft:villager_happy", { x: midX, y: midY + 0.5, z: midZ });
+                        spawnParticleSafe(dim, "minecraft:totem_particle", { x: midX, y: midY + 0.6, z: midZ });
+                    }
+                } catch {
+                    try {
+                        const legacyBaby = dim.spawnEntity("minecraft:villager", { x: midX, y: vLoc.y, z: midZ });
+                        legacyBaby?.triggerEvent("minecraft:spawn_baby");
+                        legacyBaby?.addTag("rpc:baby_villager");
+                    } catch {}
+                }
+
+                // Tag parents and apply breeding cooldown (60s)
+                villager.addTag("rpc:recently_bred");
+                partner.addTag("rpc:recently_bred");
+                record.breedCooldown = EXPANSION_CONFIG.BREED_COOLDOWN_TICKS || 1200;
+
+                const partnerRecord = this.records.get(partner.id);
+                if (partnerRecord) {
+                    partnerRecord.breedCooldown = EXPANSION_CONFIG.BREED_COOLDOWN_TICKS || 1200;
+                }
+
+                // Schedule tag cleanup
+                const vId = villager.id;
+                const pId = partner.id;
+                system.runTimeout(() => {
+                    try {
+                        const v = dim.getEntities({ location: vLoc, maxDistance: 16 }).find(e => e.id === vId);
+                        v?.removeTag("rpc:recently_bred");
+                    } catch {}
+                    try {
+                        const p = dim.getEntities({ location: pLoc, maxDistance: 16 }).find(e => e.id === pId);
+                        p?.removeTag("rpc:recently_bred");
+                    } catch {}
+                }, 1200);
+
+                return true;
+            }
+        } catch {}
+
+        return false;
+    }
+
+    /**
+     * Counts nearby beds within radius without skipping any coordinates.
      * @param {Dimension} dimension 
      * @param {Vector3} location 
      * @param {number} radius 
@@ -731,10 +991,11 @@ export class VillageExpansionManager {
         const ox = Math.floor(location.x);
         const oy = Math.floor(location.y);
         const oz = Math.floor(location.z);
+        const r = Math.min(radius, 12);
 
-        for (let dx = -radius; dx <= radius; dx += 3) {
-            for (let dz = -radius; dz <= radius; dz += 3) {
-                for (let dy = -2; dy <= 3; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+            for (let dz = -r; dz <= r; dz++) {
+                for (let dy = -2; dy <= 2; dy++) {
                     const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                     try {
                         const block = dimension.getBlock(pos);
@@ -745,7 +1006,7 @@ export class VillageExpansionManager {
                 }
             }
         }
-        return count;
+        return Math.ceil(count / 2);
     }
 
     /**
@@ -756,16 +1017,24 @@ export class VillageExpansionManager {
      */
     countNearbyVillagers(dimension, location, radius = EXPANSION_CONFIG.BED_SEARCH_RADIUS) {
         if (!dimension || !location) return 1;
+        let total = 0;
         try {
             const villagers = dimension.getEntities({
                 type: "minecraft:villager_v2",
                 location: location,
                 maxDistance: radius
             });
-            return villagers.length || 1;
-        } catch {
-            return 1;
-        }
+            total += villagers.length;
+        } catch {}
+        try {
+            const legacy = dimension.getEntities({
+                type: "minecraft:villager",
+                location: location,
+                maxDistance: radius
+            });
+            total += legacy.length;
+        } catch {}
+        return Math.max(1, total);
     }
 
     /**
@@ -781,87 +1050,170 @@ export class VillageExpansionManager {
         const oy = Math.floor(location.y);
         const oz = Math.floor(location.z);
 
+        const DIRECTIONS = [
+            { dir: 0, dx: 0, dz: 1 },  // South (+Z)
+            { dir: 3, dx: 1, dz: 0 },  // East (+X)
+            { dir: 2, dx: 0, dz: -1 }, // North (-Z)
+            { dir: 1, dx: -1, dz: 0 }  // West (-X)
+        ];
+
+        const candidates = [];
+
         for (let dx = -radius; dx <= radius; dx += 2) {
             for (let dz = -radius; dz <= radius; dz += 2) {
                 for (let dy = -1; dy <= 2; dy++) {
-                    const g1 = { x: ox + dx, y: oy + dy, z: oz + dz };
-                    const g2 = { x: ox + dx + 1, y: oy + dy, z: oz + dz };
+                    const footPos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                    const gFoot = { x: footPos.x, y: footPos.y - 1, z: footPos.z };
 
                     try {
-                        const bGround1 = dimension.getBlock(g1);
-                        const bGround2 = dimension.getBlock(g2);
-                        if (!bGround1?.isSolid || !bGround2?.isSolid) continue;
+                        const bGroundFoot = dimension.getBlock(gFoot);
+                        const bFoot = dimension.getBlock(footPos);
+                        if (!isSolidGround(bGroundFoot) || !isFreeBedSpace(bFoot)) continue;
 
-                        const a1 = dimension.getBlock({ x: g1.x, y: g1.y + 1, z: g1.z });
-                        const a2 = dimension.getBlock({ x: g2.x, y: g2.y + 1, z: g2.z });
-                        const h1 = dimension.getBlock({ x: g1.x, y: g1.y + 2, z: g1.z });
-                        const h2 = dimension.getBlock({ x: g2.x, y: g2.y + 2, z: g2.z });
+                        for (const d of DIRECTIONS) {
+                            const headPos = { x: footPos.x + d.dx, y: footPos.y, z: footPos.z + d.dz };
+                            const gHead = { x: headPos.x, y: headPos.y - 1, z: headPos.z };
 
-                        if (a1?.isAir && a2?.isAir && h1?.isAir && h2?.isAir) {
-                            return { x: g1.x, y: g1.y + 1, z: g1.z };
+                            const bGroundHead = dimension.getBlock(gHead);
+                            const bHead = dimension.getBlock(headPos);
+                            if (!isSolidGround(bGroundHead) || !isFreeBedSpace(bHead)) continue;
+
+                            const fH1 = dimension.getBlock({ x: footPos.x, y: footPos.y + 1, z: footPos.z });
+                            const fH2 = dimension.getBlock({ x: footPos.x, y: footPos.y + 2, z: footPos.z });
+                            const hH1 = dimension.getBlock({ x: headPos.x, y: headPos.y + 1, z: headPos.z });
+                            const hH2 = dimension.getBlock({ x: headPos.x, y: headPos.y + 2, z: headPos.z });
+
+                            if (fH1?.isAir && fH2?.isAir && hH1?.isAir && hH2?.isAir) {
+                                candidates.push({ footPos, headPos, direction: d.dir });
+                                break;
+                            }
                         }
                     } catch {}
                 }
             }
         }
-        return null;
+
+        if (candidates.length === 0) return null;
+        return candidates[Math.floor(Math.random() * candidates.length)];
     }
 
     /**
      * Places a bed block to expand village breeding capacity.
      * @param {Entity} villager 
-     * @param {Vector3} spot 
+     * @param {object} spot 
      */
     performPlaceBed(villager, spot) {
         if (!villager || !villager.isValid() || !spot) return false;
         const dim = villager.dimension;
+        const footPos = spot.footPos || spot;
 
         try {
-            const rot = getLookRotation(villager.location, spot);
+            const rot = getLookRotation(villager.location, footPos);
             villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            const equippable = villager.getComponent("minecraft:equippable");
+            equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:bed", 1));
             villager.playAnimation("animation.villager.raise_arms");
         } catch {}
 
-        const block = dim.getBlock(spot);
-        if (!block || !block.isAir) return false;
+        let placed = false;
+        if (spot.footPos && spot.headPos) {
+            placed = placeBedBlock(dim, spot);
+        } else {
+            const block = dim.getBlock(footPos);
+            if (block && isPassableBlock(block)) {
+                placed = setBlockSafe(block, EXPANSION_CONFIG.BED_BLOCK_ID);
+            }
+        }
 
-        const placed = setBlockSafe(block, EXPANSION_CONFIG.BED_BLOCK_ID);
         if (placed) {
-            playSoundSafe(dim, "dig.wood", spot, { volume: 0.9, pitch: 1.0 });
+            setAreaBedCooldown(dim, footPos);
+            playSoundSafe(dim, "dig.wood", footPos, { volume: 0.9, pitch: 1.0 });
             playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.1 });
-            spawnParticleSafe(dim, "minecraft:heart_particle", { x: spot.x + 0.5, y: spot.y + 1.2, z: spot.z + 0.5 });
-            spawnParticleSafe(dim, "minecraft:villager_happy", { x: spot.x + 0.5, y: spot.y + 1.0, z: spot.z + 0.5 });
+            spawnParticleSafe(dim, "minecraft:heart_particle", { x: footPos.x + 0.5, y: footPos.y + 1.2, z: footPos.z + 0.5 });
+            spawnParticleSafe(dim, "minecraft:villager_happy", { x: footPos.x + 0.5, y: footPos.y + 1.0, z: footPos.z + 0.5 });
             return true;
         }
         return false;
     }
 
     /**
-     * Finds a spot for placing a village workbench.
+     * Checks if a specific workbench (or any village workstation) exists within radius.
+     * Scans every coordinate (no skipping) so existing workbenches are accurately identified.
+     * @param {Dimension} dimension 
+     * @param {Vector3} location 
+     * @param {string|null} workbenchTypeId 
+     * @param {number} radius 
+     * @returns {boolean}
+     */
+    hasNearbyWorkbench(dimension, location, workbenchTypeId = null, radius = 10) {
+        if (!dimension || !location) return false;
+        const ox = Math.floor(location.x);
+        const oy = Math.floor(location.y);
+        const oz = Math.floor(location.z);
+
+        const checkTypes = workbenchTypeId ? [workbenchTypeId] : EXPANSION_CONFIG.WORKBENCH_BLOCK_IDS;
+
+        for (let dx = -radius; dx <= radius; dx++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                    try {
+                        const block = dimension.getBlock(pos);
+                        if (block && checkTypes.includes(block.typeId)) {
+                            return true;
+                        }
+                    } catch {}
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Finds a spot for placing a village workbench right adjacent to the villager (1 to 3 blocks away).
+     * Reliably replaces short grass / snow layer on solid ground without destroying structures.
      * @param {Dimension} dimension 
      * @param {Vector3} location 
      * @param {number} radius 
      */
-    findNearbyWorkbenchPlacementSpot(dimension, location, radius = 8) {
+    findNearbyWorkbenchPlacementSpot(dimension, location, radius = 3) {
         if (!dimension || !location) return null;
         const ox = Math.floor(location.x);
         const oy = Math.floor(location.y);
         const oz = Math.floor(location.z);
 
-        for (let dx = -radius; dx <= radius; dx += 2) {
-            for (let dz = -radius; dz <= radius; dz += 2) {
-                for (let dy = -1; dy <= 2; dy++) {
-                    const g = { x: ox + dx, y: oy + dy, z: oz + dz };
-                    const a = { x: g.x, y: g.y + 1, z: g.z };
-
-                    try {
-                        const ground = dimension.getBlock(g);
-                        const air = dimension.getBlock(a);
-                        if (ground?.isSolid && !ground.isAir && air?.isAir) {
-                            return a;
-                        }
-                    } catch {}
+        // Offsets sorted by closeness to the villager (checks nearest rings first)
+        const offsets = [];
+        for (let r = 1; r <= radius; r++) {
+            for (let dx = -r; dx <= r; dx++) {
+                for (let dz = -r; dz <= r; dz++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dz)) === r) {
+                        offsets.push({ dx, dz });
+                    }
                 }
+            }
+        }
+
+        for (const off of offsets) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const groundPos = { x: ox + off.dx, y: oy + dy - 1, z: oz + off.dz };
+                const spotPos = { x: ox + off.dx, y: oy + dy, z: oz + off.dz };
+                const abovePos = { x: ox + off.dx, y: oy + dy + 1, z: oz + off.dz };
+
+                try {
+                    const ground = dimension.getBlock(groundPos);
+                    const spot = dimension.getBlock(spotPos);
+                    const above = dimension.getBlock(abovePos);
+
+                    if (isSolidGround(ground) && 
+                        isReplaceableSpace(spot) && 
+                        !spot.typeId.includes("bed") && 
+                        !spot.typeId.includes("chest") && 
+                        !spot.typeId.includes("door") &&
+                        (isReplaceableSpace(above) || above?.isAir)) {
+                        return spotPos;
+                    }
+                } catch {}
             }
         }
         return null;
@@ -869,6 +1221,7 @@ export class VillageExpansionManager {
 
     /**
      * Places a workbench for unemployed or growing villagers.
+     * Replaces grass cleanly, equips the workstation in hand, and applies area cooldown.
      * @param {Entity} villager 
      * @param {Vector3} spot 
      * @param {string} workbenchTypeId 
@@ -880,14 +1233,17 @@ export class VillageExpansionManager {
         try {
             const rot = getLookRotation(villager.location, spot);
             villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            const equippable = villager.getComponent("minecraft:equippable");
+            equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(workbenchTypeId, 1));
             villager.playAnimation("animation.villager.raise_arms");
         } catch {}
 
         const block = dim.getBlock(spot);
-        if (!block || !block.isAir) return false;
+        if (!block || !isReplaceableSpace(block)) return false;
 
         const placed = setBlockSafe(block, workbenchTypeId);
         if (placed) {
+            setAreaWorkbenchCooldown(dim, spot, 60000);
             playSoundSafe(dim, "dig.wood", spot, { volume: 0.9, pitch: 1.0 });
             playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
             spawnParticleSafe(dim, "minecraft:villager_happy", { x: spot.x + 0.5, y: spot.y + 1.2, z: spot.z + 0.5 });

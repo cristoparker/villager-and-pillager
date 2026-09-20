@@ -6,7 +6,7 @@
 
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { FARMER_CONFIG, FLETCHER_CONFIG } from "./config.js";
-import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe } from "./utils.js";
+import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace } from "./utils.js";
 import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
@@ -978,3 +978,497 @@ export function performBreedAnimals(villager, breedPairInfo) {
     return true;
 }
 
+/**
+ * Equips an item in the villager's main hand.
+ * @param {Entity} villager 
+ * @param {string} itemTypeId 
+ */
+export function equipItem(villager, itemTypeId) {
+    if (!villager || !villager.isValid() || !itemTypeId) return;
+
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === itemTypeId) {
+                return;
+            }
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(itemTypeId, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${itemTypeId}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Scans nearby loaded blocks for a chest or barrel container.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {{ block: Block, pos: Vector3 } | null}
+ */
+export function findNearbyChest(dimension, location, radius = FARMER_CONFIG.CHEST_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+    const r = Math.min(radius, 20);
+    const chestIds = FARMER_CONFIG.CHEST_BLOCK_IDS;
+
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+            for (let dy = -2; dy <= 3; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                try {
+                    const block = dimension.getBlock(pos);
+                    if (block && chestIds.includes(block.typeId)) {
+                        const d = distance(location, pos);
+                        if (d < closestDist) {
+                            closestDist = d;
+                            closest = { block, pos };
+                        }
+                    }
+                } catch {}
+            }
+        }
+    }
+    return closest;
+}
+
+/**
+ * Finds a suitable flat ground spot near the farmer to erect a community farm chest.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {{ pos: Vector3 } | null}
+ */
+export function findNearbyChestPlacementSpot(dimension, location, radius = 4) {
+    if (!dimension || !location) return null;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+
+    const offsets = [];
+    for (let r = 1; r <= radius; r++) {
+        for (let dx = -r; dx <= r; dx++) {
+            for (let dz = -r; dz <= r; dz++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) === r) {
+                    offsets.push({ dx, dz });
+                }
+            }
+        }
+    }
+
+    for (const off of offsets) {
+        for (let dy = -1; dy <= 1; dy++) {
+            const groundPos = { x: ox + off.dx, y: oy + dy - 1, z: oz + off.dz };
+            const spotPos = { x: ox + off.dx, y: oy + dy, z: oz + off.dz };
+            const abovePos = { x: ox + off.dx, y: oy + dy + 1, z: oz + off.dz };
+
+            try {
+                const ground = dimension.getBlock(groundPos);
+                const spot = dimension.getBlock(spotPos);
+                const above = dimension.getBlock(abovePos);
+
+                if (isSolidGround(ground) && 
+                    isReplaceableSpace(spot) && 
+                    !spot.typeId.includes("bed") && 
+                    !spot.typeId.includes("chest") && 
+                    !spot.typeId.includes("door") &&
+                    (isReplaceableSpace(above) || above?.isAir)) {
+                    return { pos: spotPos };
+                }
+            } catch {}
+        }
+    }
+    return null;
+}
+
+/**
+ * Equips and places a village/farm community chest, depositing harvested produce into it.
+ * @param {Entity} villager 
+ * @param {Vector3} spotPos 
+ */
+export function performPlaceChest(villager, spotPos) {
+    if (!villager || !villager.isValid() || !spotPos) return false;
+    const dim = villager.dimension;
+
+    try {
+        const rot = getLookRotation(villager.location, spotPos);
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        equipItem(villager, "minecraft:chest");
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    const block = dim.getBlock(spotPos);
+    if (!block || !isPassableBlock(block)) return false;
+
+    const placed = setBlockSafe(block, "minecraft:chest") || setBlockSafe(block, "minecraft:barrel");
+    if (placed) {
+        playSoundSafe(dim, "dig.wood", spotPos, { volume: 0.9, pitch: 1.0 });
+        playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
+        spawnParticleSafe(dim, "minecraft:villager_happy", { x: spotPos.x + 0.5, y: spotPos.y + 1.0, z: spotPos.z + 0.5 });
+
+        // Deposit starter harvested farm goods into the newly placed community chest
+        try {
+            const inv = block.getComponent("minecraft:inventory");
+            const container = inv?.container;
+            if (container) {
+                const crops = ["minecraft:wheat", "minecraft:carrot", "minecraft:potato", "minecraft:bread", "minecraft:wheat_seeds"];
+                const loot = crops[Math.floor(Math.random() * crops.length)];
+                container.addItem(new ItemStack(loot, Math.floor(Math.random() * 3) + 2));
+            }
+        } catch {}
+
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Deposits harvested farm crops into an existing village chest or barrel.
+ * @param {Entity} villager 
+ * @param {Block} chestBlock 
+ */
+export function performDepositCropIntoChest(villager, chestBlock) {
+    if (!villager || !villager.isValid() || !chestBlock) return false;
+    const dim = villager.dimension;
+    const pos = chestBlock.location;
+
+    try {
+        const rot = getLookRotation(villager.location, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        const crops = ["minecraft:wheat", "minecraft:carrot", "minecraft:potato", "minecraft:beetroot"];
+        equipItem(villager, crops[Math.floor(Math.random() * crops.length)]);
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "random.chestopen", pos, { volume: 0.8, pitch: 1.0 });
+
+    try {
+        const inv = chestBlock.getComponent("minecraft:inventory");
+        const container = inv?.container;
+        if (container) {
+            const cropList = ["minecraft:wheat", "minecraft:carrot", "minecraft:potato", "minecraft:beetroot", "minecraft:wheat_seeds"];
+            const chosen = cropList[Math.floor(Math.random() * cropList.length)];
+            container.addItem(new ItemStack(chosen, Math.floor(Math.random() * 2) + 1));
+        }
+    } catch {}
+
+    playSoundSafe(dim, "random.chestclosed", pos, { volume: 0.8, pitch: 1.0 });
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: pos.x + 0.5, y: pos.y + 1.2, z: pos.z + 0.5 });
+
+    return true;
+}
+
+/**
+ * Finds an open spot adjacent or within 1-3 blocks of an existing chest.
+ * @param {Dimension} dimension 
+ * @param {Vector3} chestPos 
+ * @param {number} radius 
+ * @returns {{ block: Block, pos: Vector3 } | null}
+ */
+export function findNearbyChestPlacementSpotNearExisting(dimension, chestPos, radius = 3) {
+    if (!dimension || !chestPos) return null;
+    const ox = Math.floor(chestPos.x);
+    const oy = Math.floor(chestPos.y);
+    const oz = Math.floor(chestPos.z);
+    const candidates = [];
+
+    for (let dx = -radius; dx <= radius; dx++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+            if (dx === 0 && dz === 0) continue;
+            for (let dy = -1; dy <= 1; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                const gPos = { x: pos.x, y: pos.y - 1, z: pos.z };
+                const aPos = { x: pos.x, y: pos.y + 1, z: pos.z };
+
+                try {
+                    const block = dimension.getBlock(pos);
+                    const ground = dimension.getBlock(gPos);
+                    const above = dimension.getBlock(aPos);
+
+                    if (isSolidGround(ground) && isPassableBlock(block) && isPassableBlock(above)) {
+                        candidates.push({ block, pos });
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+/**
+ * Counts existing beds in vicinity accurately without skipping coordinates.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function countNearbyBeds(dimension, location, radius = FARMER_CONFIG.BED_SEARCH_RADIUS) {
+    if (!dimension || !location) return 0;
+    let count = 0;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+    const r = Math.min(radius, 12);
+
+    for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                try {
+                    const block = dimension.getBlock(pos);
+                    if (block && block.typeId === "minecraft:bed") {
+                        count++;
+                    }
+                } catch {}
+            }
+        }
+    }
+    return Math.ceil(count / 2);
+}
+
+/**
+ * Counts villagers within radius.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function countNearbyVillagers(dimension, location, radius = FARMER_CONFIG.BED_SEARCH_RADIUS) {
+    if (!dimension || !location) return 1;
+    let total = 0;
+    try {
+        const villagers = dimension.getEntities({
+            type: "minecraft:villager_v2",
+            location: location,
+            maxDistance: radius
+        });
+        total += villagers.length;
+    } catch {}
+    try {
+        const legacy = dimension.getEntities({
+            type: "minecraft:villager",
+            location: location,
+            maxDistance: radius
+        });
+        total += legacy.length;
+    } catch {}
+    return Math.max(1, total);
+}
+
+/**
+ * Scans for a flat 2-block ground spot with 2-block clear headroom for placing a bed.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {{ footPos: Vector3, headPos: Vector3, direction: number } | null}
+ */
+export function findNearbyBedPlacementSpot(dimension, location, radius = 8) {
+    if (!dimension || !location) return null;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+
+    const DIRECTIONS = [
+        { dir: 0, dx: 0, dz: 1 },  // South (+Z)
+        { dir: 3, dx: 1, dz: 0 },  // East (+X)
+        { dir: 2, dx: 0, dz: -1 }, // North (-Z)
+        { dir: 1, dx: -1, dz: 0 }  // West (-X)
+    ];
+
+    const candidates = [];
+
+    for (let dx = -radius; dx <= radius; dx += 2) {
+        for (let dz = -radius; dz <= radius; dz += 2) {
+            for (let dy = -1; dy <= 2; dy++) {
+                const footPos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                const gFoot = { x: footPos.x, y: footPos.y - 1, z: footPos.z };
+
+                try {
+                    const bGroundFoot = dimension.getBlock(gFoot);
+                    const bFoot = dimension.getBlock(footPos);
+                    if (!isSolidGround(bGroundFoot) || bGroundFoot.typeId.includes("bed") || !isFreeBedSpace(bFoot)) continue;
+
+                    for (const d of DIRECTIONS) {
+                        const headPos = { x: footPos.x + d.dx, y: footPos.y, z: footPos.z + d.dz };
+                        const gHead = { x: headPos.x, y: headPos.y - 1, z: headPos.z };
+
+                        const bGroundHead = dimension.getBlock(gHead);
+                        const bHead = dimension.getBlock(headPos);
+                        if (!isSolidGround(bGroundHead) || bGroundHead.typeId.includes("bed") || !isFreeBedSpace(bHead)) continue;
+
+                        // Check 2 blocks clear headroom above foot and head
+                        const fH1 = dimension.getBlock({ x: footPos.x, y: footPos.y + 1, z: footPos.z });
+                        const fH2 = dimension.getBlock({ x: footPos.x, y: footPos.y + 2, z: footPos.z });
+                        const hH1 = dimension.getBlock({ x: headPos.x, y: headPos.y + 1, z: headPos.z });
+                        const hH2 = dimension.getBlock({ x: headPos.x, y: headPos.y + 2, z: headPos.z });
+
+                        if (fH1?.isAir && fH2?.isAir && hH1?.isAir && hH2?.isAir) {
+                            candidates.push({ footPos, headPos, direction: d.dir });
+                            break;
+                        }
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    if (candidates.length === 0) return null;
+    return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+/**
+ * Places a complete 2-block Bedrock bed with authentic orientation, sound, and particles.
+ * Guaranteed to never replace existing furniture or blocks.
+ * @param {Entity} villager 
+ * @param {{ footPos: Vector3, headPos: Vector3, direction: number }} bedSpot 
+ */
+export function performPlaceBed(villager, bedSpot) {
+    if (!villager || !villager.isValid() || !bedSpot) return false;
+    const dim = villager.dimension;
+    const { footPos } = bedSpot;
+
+    try {
+        const rot = getLookRotation(villager.location, footPos);
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        equipItem(villager, "minecraft:bed");
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    const placed = placeBedBlock(dim, bedSpot);
+    if (placed) {
+        playSoundSafe(dim, "dig.wood", footPos, { volume: 0.9, pitch: 1.0 });
+        playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.1 });
+        spawnParticleSafe(dim, "minecraft:heart_particle", { x: footPos.x + 0.5, y: footPos.y + 1.2, z: footPos.z + 0.5 });
+        spawnParticleSafe(dim, "minecraft:villager_happy", { x: footPos.x + 0.5, y: footPos.y + 1.0, z: footPos.z + 0.5 });
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Finds a nearby villager to share food with (bread or carrots) to boost breeding and village population.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {Entity|null}
+ */
+/**
+ * Scans nearby villagers to find one needing food.
+ * Rotates through all villagers so the farmer gives free bread to everyone!
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {Entity|null}
+ */
+export function findNearbyVillagersToFeed(dimension, location, radius = FARMER_CONFIG.FOOD_SHARE_RADIUS || 16) {
+    if (!dimension || !location) return null;
+    try {
+        let villagers = [];
+        try {
+            villagers = dimension.getEntities({
+                type: "minecraft:villager_v2",
+                location: location,
+                maxDistance: radius
+            });
+        } catch {}
+        try {
+            const leg = dimension.getEntities({
+                type: "minecraft:villager",
+                location: location,
+                maxDistance: radius
+            });
+            if (leg && leg.length > 0) villagers = villagers.concat(leg);
+        } catch {}
+
+        let fallbackCandidate = null;
+        for (const v of villagers) {
+            if (!v || !v.isValid()) continue;
+            const d = distance(location, v.location);
+            if (d > 0.8) { // Not self
+                if (!v.hasTag("rpc:recently_fed_bread")) {
+                    return v; // Found an unfed villager!
+                }
+                if (!fallbackCandidate) fallbackCandidate = v;
+            }
+        }
+        return fallbackCandidate;
+    } catch {}
+    return null;
+}
+
+/**
+ * Drops free bread to a nearby villager, playing toss animations, sounds, and heart particles.
+ * Ensures the recipient has enough bread (>= 3) to trigger Minecraft's own native breeding system!
+ * @param {Entity} farmer 
+ * @param {Entity} recipient 
+ */
+export function performShareFoodWithVillager(farmer, recipient) {
+    if (!farmer || !farmer.isValid() || !recipient || !recipient.isValid()) return false;
+    const dim = farmer.dimension;
+    const fLoc = farmer.location;
+    const rLoc = recipient.location;
+
+    // Face each other
+    try {
+        const rotF = getLookRotation(fLoc, rLoc);
+        const rotR = getLookRotation(rLoc, fLoc);
+        farmer.teleport(fLoc, { rotation: { x: 0, y: rotF.y } });
+        recipient.teleport(rLoc, { rotation: { x: 0, y: rotR.y } });
+        equipItem(farmer, "minecraft:bread");
+        farmer.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    // Drop bread visually between them
+    try {
+        const dropPos = {
+            x: fLoc.x + (rLoc.x - fLoc.x) * 0.5,
+            y: fLoc.y + 0.6,
+            z: fLoc.z + (rLoc.z - fLoc.z) * 0.5
+        };
+        dim.spawnItem(new ItemStack("minecraft:bread", 2), dropPos);
+    } catch {}
+
+    // Deposit 4 breads into recipient's inventory container (vanilla Minecraft requires 3 bread to breed!)
+    try {
+        const inv = recipient.getComponent("minecraft:inventory");
+        inv?.container?.addItem(new ItemStack("minecraft:bread", 4));
+    } catch {}
+
+    // Also ensure farmer has bread for breeding
+    try {
+        const fInv = farmer.getComponent("minecraft:inventory");
+        fInv?.container?.addItem(new ItemStack("minecraft:bread", 4));
+    } catch {}
+
+    // Tag recipient so farmer feeds others next
+    try {
+        recipient.addTag("rpc:recently_fed_bread");
+        system.runTimeout(() => {
+            try {
+                if (recipient.isValid()) recipient.removeTag("rpc:recently_fed_bread");
+            } catch {}
+        }, 300); // 15 seconds
+    } catch {}
+
+    playSoundSafe(dim, "random.pop", rLoc, { volume: 0.9, pitch: 1.1 });
+    playSoundSafe(dim, "mob.villager.yes", fLoc, { volume: 0.9, pitch: 1.0 });
+
+    // Display breeding love hearts!
+    spawnParticleSafe(dim, "minecraft:heart_particle", { x: rLoc.x, y: rLoc.y + 1.2, z: rLoc.z });
+    spawnParticleSafe(dim, "minecraft:heart_particle", { x: fLoc.x, y: fLoc.y + 1.2, z: fLoc.z });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: rLoc.x, y: rLoc.y + 1.0, z: rLoc.z });
+
+    return true;
+}

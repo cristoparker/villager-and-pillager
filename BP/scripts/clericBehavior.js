@@ -382,6 +382,9 @@ export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CO
         "minecraft:zombie_villager"
     ];
 
+    let closest = null;
+    let closestDist = Infinity;
+
     for (const typeId of zombieVillagerTypes) {
         try {
             const entities = dimension.getEntities({
@@ -390,14 +393,18 @@ export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CO
                 maxDistance: radius
             });
             for (const entity of entities) {
-                if (entity && entity.isValid()) {
-                    return entity;
+                if (entity && entity.isValid() && !entity.hasTag("rpc:curing")) {
+                    const d = distance(location, entity.location);
+                    if (d < closestDist) {
+                        closestDist = d;
+                        closest = entity;
+                    }
                 }
             }
         } catch {}
     }
 
-    return null;
+    return closest;
 }
 
 /**
@@ -416,13 +423,19 @@ export function performCureZombieVillager(villager, zombieVillager) {
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
+    // Tag to prevent duplicate cure attempts by multiple clerics
+    try {
+        zombieVillager.addTag("rpc:curing");
+    } catch {}
+
     // Splash weakness potion
     playSoundSafe(dim, "potion.splash", zLoc, { volume: 1.0, pitch: 1.0 });
     playSoundSafe(dim, "random.glass", zLoc, { volume: 0.8, pitch: 1.2 });
     spawnParticleSafe(dim, "minecraft:potion_splash_particle", { x: zLoc.x, y: zLoc.y + 1.0, z: zLoc.z });
 
     try {
-        zombieVillager.addEffect("weakness", 600, { amplifier: 0, showParticles: true });
+        zombieVillager.addEffect("weakness", 1200, { amplifier: 0, showParticles: true });
+        zombieVillager.addEffect("slowness", 400, { amplifier: 1, showParticles: false });
     } catch {}
 
     // Feed golden apple
@@ -431,7 +444,7 @@ export function performCureZombieVillager(villager, zombieVillager) {
     spawnParticleSafe(dim, "minecraft:totem_particle", { x: zLoc.x, y: zLoc.y + 1.2, z: zLoc.z });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: zLoc.x, y: zLoc.y + 1.0, z: zLoc.z });
 
-    // Trigger transformation into villager!
+    // Trigger transformation into normal villager!
     try {
         zombieVillager.triggerEvent("minecraft:start_transforming");
     } catch {}

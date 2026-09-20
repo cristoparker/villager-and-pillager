@@ -235,15 +235,18 @@ system.afterEvents.scriptEventReceive.subscribe((event) => {
 });
 
 // Chat shortcut: type !summonall or !villagers in chat to summon every villager profession!
-world.beforeEvents.chatSend.subscribe((event) => {
-    try {
-        const msg = event.message.trim().toLowerCase();
-        if (msg === "!summonall" || msg === "!villagers" || msg === "!summon_villagers" || msg === "!summon") {
-            event.cancel = true;
-            const player = event.sender;
-            system.run(() => {
-                summonAllVillagers(player, allManagers);
-            });
-        }
-    } catch {}
-});
+try {
+    const chatEvent = world.beforeEvents?.chatSend || world.afterEvents?.chatSend;
+    chatEvent?.subscribe((event) => {
+        try {
+            const msg = event.message.trim().toLowerCase();
+            if (msg === "!summonall" || msg === "!villagers" || msg === "!summon_villagers" || msg === "!summon") {
+                if ("cancel" in event) event.cancel = true;
+                const player = event.sender;
+                system.run(() => {
+                    summonAllVillagers(player, allManagers);
+                });
+            }
+        } catch {}
+    });
+} catch {}

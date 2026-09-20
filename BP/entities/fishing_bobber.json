@@ -29,13 +29,12 @@
         "has_collision": true
       },
       "minecraft:buoyant": {
-        "base_buoyancy": 1.2,
+        "base_buoyancy": 1.0,
         "apply_gravity": false,
         "liquid_blocks": [
           "minecraft:water",
           "minecraft:flowing_water"
-        ],
-        "simulate_bubbles": false
+        ]
       },
       "minecraft:pushable": {
         "is_pushable": false,

@@ -126,6 +126,7 @@ export class ClericManager {
             witcherCooldown: 0,
             offensiveCooldown: 0,
             sanctuaryCooldown: 0,
+            healScanCooldown: Math.floor(Math.random() * 60) + 20, // Quick initial health check, then every 30s
             timer: 20
         });
     }
@@ -171,6 +172,7 @@ export class ClericManager {
 
                 record.state = ClericState.SLEEPING;
                 record.targetAlly = null;
+                record.targetZombieVillager = null;
                 record.brewingStand = null;
                 continue;
             }
@@ -190,6 +192,7 @@ export class ClericManager {
         if (record.witcherCooldown > 0) record.witcherCooldown--;
         if (record.offensiveCooldown > 0) record.offensiveCooldown--;
         if (record.sanctuaryCooldown > 0) record.sanctuaryCooldown--;
+        if (record.healScanCooldown > 0) record.healScanCooldown--;
 
         switch (record.state) {
             case ClericState.SLEEPING: {
@@ -271,7 +274,7 @@ export class ClericManager {
                             break;
                         }
 
-                        // 3. Scan for injured allies strictly: villagers and player only
+                        // 3. Scan for injured allies strictly: villagers and player only (within 28 blocks)
                         const injured = findNearbyInjuredAlly(villager.dimension, villager.location, CLERIC_CONFIG.ALLIED_SEARCH_RADIUS);
                         if (injured) {
                             record.targetAlly = injured;
@@ -281,7 +284,7 @@ export class ClericManager {
                                 record.timer = CLERIC_CONFIG.HEAL_ANIMATION_TICKS;
                             } else {
                                 record.state = ClericState.APPROACHING_ALLY;
-                                record.timer = 60;
+                                record.timer = Math.max(160, Math.ceil(dist / 0.18) + 60);
                             }
                             break;
                         }
@@ -299,35 +302,40 @@ export class ClericManager {
                     }
 
                     // Peaceful routine
-                    // 1. Scan for Zombie Villager in need of golden apple & weakness curing ritual!
+                    // 1. Scan for Zombie Villager in need of golden apple & weakness curing ritual (28 blocks range!)
                     const zombieVillager = findNearbyZombieVillager(villager.dimension, villager.location, CLERIC_CONFIG.ZOMBIE_VILLAGER_SEARCH_RADIUS);
                     if (zombieVillager) {
                         record.targetZombieVillager = zombieVillager;
                         const dist = distance(villager.location, zombieVillager.location);
-                        if (dist <= 3.0) {
+                        if (dist <= 3.2) {
                             record.state = ClericState.CURING_ZOMBIE_VILLAGER;
                             record.timer = 35;
                             equipGoldenApple(villager);
                         } else {
                             record.state = ClericState.APPROACHING_ZOMBIE_VILLAGER;
-                            record.timer = 90;
+                            record.timer = Math.max(160, Math.ceil(dist / 0.18) + 60);
+                            equipPotion(villager);
                         }
                         break;
                     }
 
-                    // 2. Scan for injured allies (villager, player)
-                    const injured = findNearbyInjuredAlly(villager.dimension, villager.location, CLERIC_CONFIG.ALLIED_SEARCH_RADIUS);
-                    if (injured) {
-                        record.targetAlly = injured;
-                        const dist = distance(villager.location, injured.location);
-                        if (dist <= CLERIC_CONFIG.HEAL_DISTANCE) {
-                            record.state = ClericState.HEALING;
-                            record.timer = CLERIC_CONFIG.HEAL_ANIMATION_TICKS;
-                        } else {
-                            record.state = ClericState.APPROACHING_ALLY;
-                            record.timer = 100;
+                    // 2. Periodic Smart Health Scan (every 30 to 60 seconds) across 20-32 blocks (configured to 28 blocks)
+                    if (record.healScanCooldown <= 0) {
+                        record.healScanCooldown = CLERIC_CONFIG.HEAL_SCAN_INTERVAL_TICKS; // Reset 30s timer
+                        const injured = findNearbyInjuredAlly(villager.dimension, villager.location, CLERIC_CONFIG.ALLIED_SEARCH_RADIUS);
+                        if (injured) {
+                            record.targetAlly = injured;
+                            const dist = distance(villager.location, injured.location);
+                            equipPotion(villager);
+                            if (dist <= CLERIC_CONFIG.HEAL_DISTANCE) {
+                                record.state = ClericState.HEALING;
+                                record.timer = CLERIC_CONFIG.HEAL_ANIMATION_TICKS;
+                            } else {
+                                record.state = ClericState.APPROACHING_ALLY;
+                                record.timer = Math.max(160, Math.ceil(dist / 0.18) + 60);
+                            }
+                            break;
                         }
-                        break;
                     }
 
                     // 3. Interact with brewing stand (brew and drop potions)
@@ -399,7 +407,7 @@ export class ClericManager {
 
                 const zLoc = record.targetZombieVillager.location;
                 const dist = distance(villager.location, zLoc);
-                if (dist <= 3.0) {
+                if (dist <= 3.5) {
                     record.state = ClericState.CURING_ZOMBIE_VILLAGER;
                     record.timer = 35;
                     equipGoldenApple(villager);
@@ -407,14 +415,18 @@ export class ClericManager {
                 }
 
                 try {
+                    // Give protective resistance to cleric while approaching hostile zombie villager
+                    villager.addEffect("resistance", 40, { amplifier: 1, showParticles: false });
+
                     if (record.timer % 10 === 0) {
                         const rot = getLookRotation(villager.location, zLoc);
                         villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        equipPotion(villager);
                     }
                     const dx = zLoc.x - villager.location.x;
                     const dz = zLoc.z - villager.location.z;
                     const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                    villager.applyImpulse({ x: (dx / len) * 0.20, y: 0, z: (dz / len) * 0.20 });
                 } catch {}
                 break;
             }

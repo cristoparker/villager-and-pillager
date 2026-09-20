@@ -235,7 +235,19 @@ export const FARMER_CONFIG = {
             family: "pig",
             name: "Pig"
         }
-    ]
+    ],
+    CHEST_SEARCH_RADIUS: 20,
+    CHEST_DEPOSIT_DISTANCE: 2.5,
+    BED_SEARCH_RADIUS: 14,
+    BED_COOLDOWN_TICKS: 4800,
+    CHEST_COOLDOWN_TICKS: 3600,
+    FOOD_SHARE_RADIUS: 16,
+    FOOD_SHARE_COOLDOWN_TICKS: 120, // 6 seconds - active bread distribution to everyone!
+    COMPOSTER_ID: "minecraft:composter",
+    COMPOSTER_SEARCH_RADIUS: 12,
+    MAX_LOCAL_BEDS_SURPLUS: 0,
+    CHEST_BLOCK_IDS: ["minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel"],
+    BED_BLOCK_ID: "minecraft:bed"
 };
 
 export const WEAPONSMITH_CONFIG = {
@@ -258,25 +270,27 @@ export const CLERIC_CONFIG = {
     SPLASH_POTION_ITEM_ID: "minecraft:splash_potion",
     POTION_ITEM_ID: "minecraft:potion",
     GOLDEN_APPLE_ITEM_ID: "minecraft:golden_apple",
-    ALLIED_SEARCH_RADIUS: 14,
+    ALLIED_SEARCH_RADIUS: 28,
     HEAL_DISTANCE: 8.0,
     HEAL_COOLDOWN_TICKS: 50,
     HEAL_ANIMATION_TICKS: 22,
+    HEAL_SCAN_INTERVAL_TICKS: 600, // Periodic health check every 30 seconds
     BREWING_STAND_ID: "minecraft:brewing_stand",
     BREWING_SEARCH_RADIUS: 16,
-    RAID_SEARCH_RADIUS: 20,
-    OFFENSIVE_SEARCH_RADIUS: 14,
+    RAID_SEARCH_RADIUS: 24,
+    OFFENSIVE_SEARCH_RADIUS: 16,
     OFFENSIVE_THROW_DISTANCE: 12,
     SELF_REGEN_HEALTH_THRESHOLD: 0.8,
     POTION_COOLDOWN_TICKS: 40,
-    ZOMBIE_VILLAGER_SEARCH_RADIUS: 12,
+    ZOMBIE_VILLAGER_SEARCH_RADIUS: 28,
     SANCTUARY_RADIUS: 8
 };
 
 export const ARMORER_CONFIG = {
     INGOT_ITEM_ID: "minecraft:iron_ingot",
-    SHIELD_ITEM_ID: "minecraft:shield",
     CHESTPLATE_ITEM_ID: "minecraft:iron_chestplate",
+    IRON_BLOCK_ID: "minecraft:iron_block",
+    CARVED_PUMPKIN_ID: "minecraft:carved_pumpkin",
     GOLEM_SEARCH_RADIUS: 20,
     REPAIR_DISTANCE: 3.0,
     REPAIR_COOLDOWN_TICKS: 60,
@@ -287,7 +301,10 @@ export const ARMORER_CONFIG = {
     ANVIL_SEARCH_RADIUS: 16,
     BUFF_SEARCH_RADIUS: 10,
     BUFF_COOLDOWN_TICKS: 300,
-    GOLEM_SUMMON_RADIUS: 32
+    GOLEM_SUMMON_RADIUS: 32,
+    RAID_SEARCH_RADIUS: 24,
+    RAID_GOLEM_BUILD_RADIUS: 24,
+    GOLEM_BUILD_COOLDOWN_TICKS: 400
 };
 
 export const LIBRARIAN_CONFIG = {
@@ -309,26 +326,34 @@ export const LIBRARIAN_CONFIG = {
 };
 
 export const EXPANSION_CONFIG = {
-    ITEM_SEARCH_RADIUS: 10,
-    ITEM_PICKUP_DISTANCE: 1.6,
-    CHEST_SEARCH_RADIUS: 16,
-    CHEST_DEPOSIT_DISTANCE: 2.2,
-    BED_SEARCH_RADIUS: 16,
-    BED_COOLDOWN_TICKS: 2400,
-    WORKBENCH_COOLDOWN_TICKS: 3600,
-    MAX_LOCAL_BEDS_SURPLUS: 2,
+    ITEM_SEARCH_RADIUS: 12,
+    ITEM_PICKUP_DISTANCE: 1.8,
+    CHEST_SEARCH_RADIUS: 20,
+    CHEST_DEPOSIT_DISTANCE: 2.5,
+    BED_SEARCH_RADIUS: 14,
+    BED_COOLDOWN_TICKS: 4800, // 4 minutes - not too frequent!
+    CHEST_COOLDOWN_TICKS: 3600, // 3 minutes
+    WORKBENCH_SEARCH_RADIUS: 10,
+    WORKBENCH_COOLDOWN_TICKS: 600, // 30 seconds
+    BREED_CHECK_INTERVAL_TICKS: 60,
+    BREED_COOLDOWN_TICKS: 600,
+    MAX_LOCAL_BEDS_SURPLUS: 0,
     CHEST_BLOCK_IDS: ["minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel"],
     BED_BLOCK_ID: "minecraft:bed",
     WORKBENCH_BLOCK_IDS: [
         "minecraft:composter",
+        "minecraft:blast_furnace",
         "minecraft:smoker",
+        "minecraft:barrel",
         "minecraft:loom",
         "minecraft:lectern",
-        "minecraft:blast_furnace",
         "minecraft:grindstone",
         "minecraft:fletching_table",
         "minecraft:brewing_stand",
-        "minecraft:barrel"
+        "minecraft:stonecutter",
+        "minecraft:smithing_table",
+        "minecraft:cartography_table",
+        "minecraft:cauldron"
     ]
 };
 

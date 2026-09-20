@@ -6,7 +6,7 @@
  */
 
 import { world, EquipmentSlot } from "@minecraft/server";
-import { SCAN_CONFIG, FISHING_CONFIG } from "./config.js";
+import { SCAN_CONFIG, FISHING_CONFIG, FISHERMAN_CONFIG } from "./config.js";
 import { findBestFishingSpot, isWaterNear } from "./waterScanner.js";
 import { checkNavigationProgress } from "./pathfinder.js";
 import { 

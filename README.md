@@ -15,7 +15,7 @@ A modular, high-depth Minecraft Bedrock Behavior & Resource Pack that transforms
 - **Smooth Locomotion & Anti-Jitter**: Custom approach states utilize directional impulse propulsion (`applyImpulse`) and throttled rotation heading, preserving native walking leg animations without teleport freeze or stutter.
 - **Visual Equipment in Hand**: Villagers visibly hold authentic tools, weapons, food, and crafting components matching their profession and current task.
 - **Living Workstation Ecosystem**: Villagers actively operate, cook, craft, and interact with smokers, looms, anvils, grindstones, lecterns, fletching tables, brewing stands, composters, and campfires.
-- **Autonomous Village Defense**: Villagers no longer simply flee from monsters—farmers fight with hoes, weaponsmiths blow war horns and cleave with axes, fletchers fire flaming arrows, armorers block with shields and repair golems, librarians dispel curses, and clerics cast holy sanctuary auras and offensive splash potions.
+- **Autonomous Village Defense**: Villagers no longer simply flee from monsters—farmers fight with hoes, weaponsmiths blow war horns and cleave with axes, fletchers fire flaming arrows, armorers build and repair iron golems, librarians dispel curses, and clerics cast holy sanctuary auras and offensive splash potions.
 
 ---
 
@@ -108,7 +108,7 @@ This update brings an entirely new layer of autonomous civilization-building to 
 ---
 
 ### 🛡️ 4. Smart Armorer Villager
-- **Held Items**: Iron Ingot (`minecraft:iron_ingot`), Shield (`minecraft:shield`), Iron Chestplate (`minecraft:iron_chestplate`).
+- **Held Items**: Iron Ingot (`minecraft:iron_ingot`), Iron Chestplate (`minecraft:iron_chestplate`).
 - **Iron Golem Repair**:
   - Actively patrols for cracked or injured village Iron Golems.
   - Equips iron ingots, hammers the golem, plays authentic metallic anvil ding sounds, and restores the golem's health.
@@ -116,10 +116,8 @@ This update brings an entirely new layer of autonomous civilization-building to 
   - Scans for unfortified villagers and players, equips an iron chestplate in hand, and casts a fortification blessing conferring **Resistance** and **Absorption** accompanied by beacon chimes.
 - **Anvil Hammering & Forging**:
   - Approaches village anvils (`minecraft:anvil`, chipped, or damaged), hammering with rhythmic metallic dings and fiery spark particles (`minecraft:crit`).
-- **Active Shield Combat Blocking**:
-  - When hostile monsters approach within 12 blocks, equips an authentic **Shield** in mainhand, enters defensive blocking stance, and deflects monster strikes.
-- **Automated Iron Golem Construction**:
-  - If all village golems are defeated during raids or monster swarms, conducts an emergency forge ritual, constructing an Iron Golem with celebratory fireworks and thunderous forge audio.
+- **Automated Iron Golem Construction (Raid & Defense)**:
+  - If a raid or monster assault is detected and no Iron Golem is nearby, constructs an Iron Golem with iron blocks and a carved pumpkin to protect the village!
 
 ---
 

@@ -76,29 +76,56 @@ export function isWaterBlock(block) {
 }
 
 /**
- * Checks if a block is passable for walking (air, grass, flowers, snow layers, etc.).
+ * Checks if a block is passable for walking or replaceable for placement (air, short grass, flowers, etc.).
  */
 export function isPassableBlock(block) {
     if (!block) return false;
     if (block.isAir) return true;
     const id = block.typeId.toLowerCase();
+
+    // Solid blocks that must never be treated as passable
+    if (id.includes("grass_block") || 
+        id.includes("dirt") || 
+        id.includes("farmland") || 
+        id.includes("path") || 
+        id.includes("podzol") || 
+        id.includes("mycelium") || 
+        id.includes("stone") || 
+        id.includes("cobble") || 
+        id.includes("deepslate") || 
+        id.includes("wood") || 
+        id.includes("log") || 
+        id.includes("plank") || 
+        id.includes("brick") || 
+        id.includes("sand") || 
+        id.includes("gravel") || 
+        id.includes("bed") || 
+        id.includes("chest") || 
+        id.includes("barrel") || 
+        id.includes("composter") || 
+        id.includes("door")) {
+        return false;
+    }
+
     if (id.includes("air") || 
-        id.includes("grass") || 
+        id.includes("short_grass") || 
+        id.includes("tallgrass") || 
+        id.includes("double_plant") || 
         id.includes("fern") || 
         id.includes("flower") || 
-        id.includes("tulip") ||
-        id.includes("rose") ||
-        id.includes("orchid") ||
-        id.includes("daisy") ||
-        id.includes("poppy") ||
-        id.includes("dandelion") ||
-        id.includes("allium") ||
-        id.includes("cornflower") ||
-        id.includes("snow_layer") ||
-        id.includes("sapling") ||
-        id.includes("deadbush") ||
-        id.includes("carpet") ||
-        id.includes("mushroom") ||
+        id.includes("tulip") || 
+        id.includes("rose") || 
+        id.includes("orchid") || 
+        id.includes("daisy") || 
+        id.includes("poppy") || 
+        id.includes("dandelion") || 
+        id.includes("allium") || 
+        id.includes("cornflower") || 
+        id.includes("snow_layer") || 
+        id.includes("sapling") || 
+        id.includes("deadbush") || 
+        id.includes("carpet") || 
+        id.includes("mushroom") || 
         id.includes("torch")) {
         return true;
     }
@@ -112,16 +139,90 @@ export function isSolidGround(block) {
     if (!block) return false;
     if (block.isAir || block.isLiquid) return false;
     const id = block.typeId.toLowerCase();
+    if (id.includes("grass_block") || id.includes("grass_path")) return true;
     if (id.includes("water") || 
         id.includes("lava") || 
         id.includes("fire") || 
         id.includes("leaves") || 
         id.includes("fence") || 
         id.includes("wall") || 
-        id.includes("cactus")) {
+        id.includes("cactus") ||
+        id.includes("bed") ||
+        id.includes("chest") ||
+        id.includes("sapling") ||
+        id.includes("flower") ||
+        id.includes("short_grass") ||
+        id.includes("tallgrass")) {
         return false;
     }
     return true;
+}
+
+/**
+ * Checks if a block is strictly empty/free space (air or replaceable short grass) for safe bed placement.
+ * Prevents beds from ever replacing existing furniture, chests, workstations, or structures.
+ */
+export function isFreeBedSpace(block) {
+    if (!block) return false;
+    if (block.isAir) return true;
+    const id = block.typeId.toLowerCase();
+    return id === "minecraft:air" || id === "minecraft:short_grass" || id === "minecraft:tall_grass" || id === "minecraft:snow_layer";
+}
+
+/**
+ * Checks if a block is replaceable free space (air, short grass, tall grass, snow layer)
+ * for placing workbenches, chests, and beds without destroying solid blocks.
+ */
+export function isReplaceableSpace(block) {
+    return isFreeBedSpace(block);
+}
+
+/**
+ * Safely places a complete 2-block Bedrock bed (foot and head) with matching direction and states.
+ * Only places if both foot and head positions are completely free space.
+ * @param {Dimension} dimension 
+ * @param {{ footPos: Vector3, headPos: Vector3, direction: number }} bedSpot 
+ * @returns {boolean}
+ */
+export function placeBedBlock(dimension, bedSpot) {
+    if (!dimension || !bedSpot || !bedSpot.footPos || !bedSpot.headPos) return false;
+    const { footPos, headPos, direction: dir } = bedSpot;
+
+    const footBlock = dimension.getBlock(footPos);
+    const headBlock = dimension.getBlock(headPos);
+    if (!footBlock || !headBlock) return false;
+
+    // Strict safety check: Never replace existing solid blocks or furniture!
+    if (!isFreeBedSpace(footBlock) || !isFreeBedSpace(headBlock)) return false;
+
+    let placed = false;
+
+    // 1. Primary: BlockPermutation with Bedrock states
+    try {
+        const footPerm = BlockPermutation.resolve("minecraft:bed", {
+            direction: dir,
+            head_piece_bit: false,
+            occupied_bit: false
+        });
+        const headPerm = BlockPermutation.resolve("minecraft:bed", {
+            direction: dir,
+            head_piece_bit: true,
+            occupied_bit: false
+        });
+
+        footBlock.setPermutation(footPerm);
+        headBlock.setPermutation(headPerm);
+        placed = true;
+    } catch {
+        // 2. Fallback: Command-based placement
+        try {
+            dimension.runCommandAsync(`setblock ${footPos.x} ${footPos.y} ${footPos.z} bed ["direction"=${dir},"head_piece_bit"=false,"occupied_bit"=false] replace`);
+            dimension.runCommandAsync(`setblock ${headPos.x} ${headPos.y} ${headPos.z} bed ["direction"=${dir},"head_piece_bit"=true,"occupied_bit"=false] replace`);
+            placed = true;
+        } catch {}
+    }
+
+    return placed;
 }
 
 /**
