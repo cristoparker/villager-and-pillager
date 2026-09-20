@@ -44,6 +44,13 @@ export class FishermanManager {
     isFishermanVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
+        // Exclude other custom professions
+        try {
+            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:shepherd")) {
+                return false;
+            }
+        } catch {}
+
         try {
             if (entity.matches({ families: ["fisherman"] })) {
                 return true;
@@ -101,6 +108,14 @@ export class FishermanManager {
                 const isFisher = this.isFishermanVillager(villager);
                 if (isFisher) {
                     this.registerFisherman(villager);
+                } else {
+                    try {
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        const mainhand = equippable?.getEquipment("Mainhand");
+                        if (mainhand && mainhand.typeId === "rpc:fishing_rod") {
+                            equippable.setEquipment("Mainhand", undefined);
+                        }
+                    } catch {}
                 }
             }
         }
@@ -116,9 +131,9 @@ export class FishermanManager {
             state: FishermanState.IDLE,
             villager: villager,
             spot: null,
-            navState: { lastPos: null, stuckTicks: 0, totalTicks: 0 },
+            timer: 40,
             fishingSession: null,
-            timer: 2
+            navState: { lastPos: null, stuckTicks: 0, totalTicks: 0 }
         });
     }
 
@@ -126,9 +141,9 @@ export class FishermanManager {
      * Main update tick executed every game tick.
      */
     update() {
-        // Refresh fisherman search every 20 ticks (1 second)
+        // Scan for new fishermen every 30 ticks (1.5 seconds)
         this.scanCooldownTicks++;
-        if (this.scanCooldownTicks >= 20) {
+        if (this.scanCooldownTicks >= 30) {
             this.scanCooldownTicks = 0;
             this.scanForFishermen();
         }
@@ -138,10 +153,16 @@ export class FishermanManager {
         for (const [id, record] of this.records.entries()) {
             const { villager } = record;
 
-            // Handle despawned or unloaded entities
-            if (!villager || !villager.isValid()) {
+            // Handle despawned, unloaded, or changed entities
+            if (!villager || !villager.isValid() || !this.isFishermanVillager(villager)) {
                 if (record.fishingSession) {
                     cleanupSession(record.fishingSession);
+                }
+                if (villager && villager.isValid()) {
+                    try {
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        equippable?.setEquipment(EquipmentSlot.Mainhand, undefined);
+                    } catch {}
                 }
                 this.records.delete(id);
                 continue;

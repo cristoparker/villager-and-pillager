@@ -42,17 +42,51 @@ system.runInterval(() => {
     }
 }, 1);
 
-// Immediately register newly spawned or transformed villagers
+// Register newly spawned or transformed villagers with a 2-tick stabilization delay
 world.afterEvents.entitySpawn.subscribe((event) => {
     try {
-        if (event.entity && event.entity.isValid()) {
-            fishermanManager.onEntitySpawn(event.entity);
-            shepherdManager.onEntitySpawn(event.entity);
-            butcherManager.onEntitySpawn(event.entity);
-            fletcherManager.onEntitySpawn(event.entity);
+        const entity = event.entity;
+        if (entity && entity.isValid() && (entity.typeId === "minecraft:villager_v2" || entity.typeId === "minecraft:villager")) {
+            system.runTimeout(() => {
+                if (!entity || !entity.isValid()) return;
+                fishermanManager.onEntitySpawn(entity);
+                shepherdManager.onEntitySpawn(entity);
+                butcherManager.onEntitySpawn(entity);
+                fletcherManager.onEntitySpawn(entity);
+            }, 2);
         }
     } catch {}
 });
+
+// Periodic cleanup: ensure no villager holds a weapon or tool from another profession
+system.runInterval(() => {
+    try {
+        const overworld = world.getDimension("overworld");
+        if (!overworld) return;
+        const villagers = overworld.getEntities({ type: "minecraft:villager_v2" });
+        for (const villager of villagers) {
+            if (!villager || !villager.isValid()) continue;
+            const equippable = villager.getComponent("minecraft:equippable");
+            const item = equippable?.getEquipment("Mainhand");
+            if (!item) continue;
+
+            const isButcher = butcherManager.isButcherVillager(villager);
+            const isFletcher = fletcherManager.isFletcherVillager(villager);
+            const isFisherman = fishermanManager.isFishermanVillager(villager);
+            const isShepherd = shepherdManager.isShepherdVillager(villager);
+
+            if ((item.typeId === "minecraft:iron_axe" || item.typeId === "rpc:cleaver") && !isButcher) {
+                equippable.setEquipment("Mainhand", undefined);
+            } else if ((item.typeId === "minecraft:bow" || item.typeId === "minecraft:crossbow") && !isFletcher) {
+                equippable.setEquipment("Mainhand", undefined);
+            } else if (item.typeId === "rpc:fishing_rod" && !isFisherman) {
+                equippable.setEquipment("Mainhand", undefined);
+            } else if ((item.typeId === "minecraft:shears" || item.typeId === "rpc:shears") && !isShepherd) {
+                equippable.setEquipment("Mainhand", undefined);
+            }
+        }
+    } catch {}
+}, 60);
 
 // Allow player interactions:
 // - Right-click any villager with rpc:fishing_rod to turn them into a Fisherman

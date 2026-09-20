@@ -17,9 +17,11 @@ import {
     findNearestSmoker, 
     loadSmoker 
 } from "./butcherBehavior.js";
+import { findNearbyMonsters } from "./fletcherBehavior.js";
 
 export const ButcherState = {
     IDLE: "IDLE",
+    COMBAT: "COMBAT",
     HUNTING: "HUNTING",
     SLAUGHTERING: "SLAUGHTERING",
     APPROACHING_SMOKER: "APPROACHING_SMOKER",
@@ -55,6 +57,13 @@ export class ButcherManager {
     isButcherVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
+        // Exclude other custom professions
+        try {
+            if (entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:fisherman") || entity.hasTag("rpc:shepherd")) {
+                return false;
+            }
+        } catch {}
+
         try {
             if (entity.matches({ families: ["butcher"] })) return true;
         } catch {}
@@ -69,7 +78,8 @@ export class ButcherManager {
 
         try {
             const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && (variantComp.value === 11 || variantComp.value === 4)) return true;
+            // Variant 11 is strictly the Butcher profession in vanilla Bedrock
+            if (variantComp && variantComp.value === 11) return true;
         } catch {}
 
         return false;
@@ -95,6 +105,15 @@ export class ButcherManager {
             if (!this.records.has(villager.id)) {
                 if (this.isButcherVillager(villager)) {
                     this.registerButcher(villager);
+                } else {
+                    // Safety check: if an entity is NOT a butcher but happens to hold an axe, unequip it
+                    try {
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        const item = equippable?.getEquipment("Mainhand");
+                        if (item && (item.typeId === BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID || item.typeId === BUTCHER_CONFIG.CLEAVER_ITEM_ID)) {
+                            unequipAxe(villager);
+                        }
+                    } catch {}
                 }
             }
         }
@@ -141,8 +160,11 @@ export class ButcherManager {
         for (const [id, record] of this.records.entries()) {
             const { villager } = record;
 
-            // Handle despawned or unloaded entities
-            if (!villager || !villager.isValid()) {
+            // Handle despawned, unloaded, or changed entities
+            if (!villager || !villager.isValid() || !this.isButcherVillager(villager)) {
+                if (villager && villager.isValid()) {
+                    unequipAxe(villager);
+                }
                 this.records.delete(id);
                 continue;
             }
@@ -197,6 +219,16 @@ export class ButcherManager {
                     // Ensure weapon is equipped
                     equipAxe(villager);
 
+                    // 1. PRIORITY 1: Check for nearby hostile monsters
+                    // Native Bedrock AI (melee_attack, attack, nearest_attackable_target)
+                    // automatically tracks and attacks monsters with the axe!
+                    const monster = findNearbyMonsters(villager.dimension, villager.location, 16);
+                    if (monster) {
+                        record.state = ButcherState.COMBAT;
+                        record.timer = 20;
+                        break;
+                    }
+
                     // If already holding meat, search for a Smoker to cook it!
                     if (record.meat) {
                         const smoker = findNearestSmoker(villager.dimension, villager.location, BUTCHER_CONFIG.SMOKER_SEARCH_RADIUS);
@@ -228,7 +260,37 @@ export class ButcherManager {
                 break;
             }
 
+            case ButcherState.COMBAT: {
+                // Ensure axe is equipped for combat
+                equipAxe(villager);
+
+                record.timer--;
+                if (record.timer <= 0) {
+                    record.timer = 20;
+                    // Check if monsters are still nearby
+                    const monster = findNearbyMonsters(villager.dimension, villager.location, 16);
+                    if (!monster) {
+                        // Village is safe! Return to cooldown / idle
+                        record.state = ButcherState.COOLDOWN;
+                        record.timer = 30;
+                        try {
+                            villager.triggerEvent("minecraft:schedule_wander_villager");
+                        } catch {}
+                    }
+                }
+                break;
+            }
+
             case ButcherState.HUNTING: {
+                // Immediate monster interruption check
+                const hostile = findNearbyMonsters(villager.dimension, villager.location, 14);
+                if (hostile) {
+                    record.state = ButcherState.COMBAT;
+                    record.targetAnimal = null;
+                    record.timer = 20;
+                    break;
+                }
+
                 record.timer--;
 
                 // Target became invalid or died
@@ -286,6 +348,17 @@ export class ButcherManager {
             }
 
             case ButcherState.APPROACHING_SMOKER: {
+                // Immediate monster interruption check
+                const hostile = findNearbyMonsters(villager.dimension, villager.location, 14);
+                if (hostile) {
+                    try {
+                        villager.triggerEvent("rpc:stop_approach_smoker");
+                    } catch {}
+                    record.state = ButcherState.COMBAT;
+                    record.timer = 20;
+                    break;
+                }
+
                 record.timer--;
 
                 if (!record.smoker || !record.meat) {
@@ -368,6 +441,13 @@ export class ButcherManager {
             }
 
             case ButcherState.COOLDOWN: {
+                const hostile = findNearbyMonsters(villager.dimension, villager.location, 16);
+                if (hostile) {
+                    record.state = ButcherState.COMBAT;
+                    record.timer = 20;
+                    break;
+                }
+
                 record.timer--;
                 if (record.timer <= 0) {
                     record.state = ButcherState.IDLE;

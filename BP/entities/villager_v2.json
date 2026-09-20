@@ -1061,6 +1061,45 @@
               "slot": "slot.weapon.mainhand"
             }
           ]
+        },
+        "minecraft:attack": {
+          "damage": 6
+        },
+        "minecraft:behavior.melee_attack": {
+          "priority": 3,
+          "speed_multiplier": 1.1,
+          "track_target": true,
+          "reach_multiplier": 1.5
+        },
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 2,
+          "must_see": true,
+          "reselect_targets": true,
+          "within_radius": 16.0,
+          "entity_types": [
+            {
+              "filters": {
+                "any_of": [
+                  { "test": "is_family", "subject": "other", "value": "monster" },
+                  { "test": "is_family", "subject": "other", "value": "zombie" },
+                  { "test": "is_family", "subject": "other", "value": "undead" },
+                  { "test": "is_family", "subject": "other", "value": "skeleton" },
+                  { "test": "is_family", "subject": "other", "value": "spider" },
+                  { "test": "is_family", "subject": "other", "value": "creeper" },
+                  { "test": "is_family", "subject": "other", "value": "illager" }
+                ]
+              },
+              "max_dist": 16.0
+            }
+          ]
+        },
+        "minecraft:behavior.avoid_mob_type": {
+          "priority": 10,
+          "entity_types": []
+        },
+        "minecraft:behavior.panic": {
+          "priority": 10,
+          "speed_multiplier": 0.6
         }
       },
       "behavior_peasant": {
@@ -1769,6 +1808,51 @@
               "slot": "slot.weapon.mainhand"
             }
           ]
+        },
+        "minecraft:shooter": {
+          "def": "minecraft:arrow"
+        },
+        "minecraft:behavior.charge_held_item": {
+          "priority": 2,
+          "items": [
+            "minecraft:arrow"
+          ]
+        },
+        "minecraft:behavior.ranged_attack": {
+          "priority": 3,
+          "attack_radius": 16.0,
+          "attack_interval_min": 1.0,
+          "attack_interval_max": 2.0
+        },
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 2,
+          "must_see": true,
+          "reselect_targets": true,
+          "within_radius": 16.0,
+          "entity_types": [
+            {
+              "filters": {
+                "any_of": [
+                  { "test": "is_family", "subject": "other", "value": "monster" },
+                  { "test": "is_family", "subject": "other", "value": "zombie" },
+                  { "test": "is_family", "subject": "other", "value": "undead" },
+                  { "test": "is_family", "subject": "other", "value": "skeleton" },
+                  { "test": "is_family", "subject": "other", "value": "spider" },
+                  { "test": "is_family", "subject": "other", "value": "creeper" },
+                  { "test": "is_family", "subject": "other", "value": "illager" }
+                ]
+              },
+              "max_dist": 16.0
+            }
+          ]
+        },
+        "minecraft:behavior.avoid_mob_type": {
+          "priority": 10,
+          "entity_types": []
+        },
+        "minecraft:behavior.panic": {
+          "priority": 10,
+          "speed_multiplier": 0.6
         }
       },
       "gather_schedule_villager": {

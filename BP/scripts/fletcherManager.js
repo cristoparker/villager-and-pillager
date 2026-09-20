@@ -1,7 +1,7 @@
 /**
  * Fisherman Villager Addon - Fletcher Manager Module (Namespace: rpc)
  * Coordinates detection of Fletcher villagers, equips them with Bow or Crossbow,
- * manages village monster defense (shooting zombies, creepers, spiders, etc.),
+ * manages village monster defense (Skeleton bow attack & Pillager crossbow attack via native Bedrock AI),
  * and conducts archery practice on nearby Target blocks during free time.
  */
 
@@ -15,7 +15,6 @@ import {
     findNearbyMonsters, 
     findNearbyTargetBlock, 
     findShootingSpot, 
-    shootArrowAtEntity, 
     shootArrowAtBlock 
 } from "./fletcherBehavior.js";
 
@@ -30,7 +29,7 @@ export const FletcherState = {
 
 export class FletcherManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, targetMonster: Entity|null, targetBlock: any, shootingSpot: any, preferredWeapon: string, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, targetBlock: any, shootingSpot: any, preferredWeapon: string, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -55,6 +54,13 @@ export class FletcherManager {
     isFletcherVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
+        // Exclude other custom professions
+        try {
+            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fisherman") || entity.hasTag("rpc:shepherd")) {
+                return false;
+            }
+        } catch {}
+
         try {
             if (entity.matches({ families: ["fletcher"] })) return true;
         } catch {}
@@ -69,7 +75,8 @@ export class FletcherManager {
 
         try {
             const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && (variantComp.value === 4 || variantComp.value === 7)) return true;
+            // Variant 4 is strictly the Fletcher profession in vanilla Bedrock
+            if (variantComp && variantComp.value === 4) return true;
         } catch {}
 
         return false;
@@ -95,6 +102,15 @@ export class FletcherManager {
             if (!this.records.has(villager.id)) {
                 if (this.isFletcherVillager(villager)) {
                     this.registerFletcher(villager);
+                } else {
+                    // Safety check: if an entity is NOT a fletcher but happens to hold a bow/crossbow, unequip it
+                    try {
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        const item = equippable?.getEquipment("Mainhand");
+                        if (item && (item.typeId === FLETCHER_CONFIG.BOW_ITEM_ID || item.typeId === FLETCHER_CONFIG.CROSSBOW_ITEM_ID)) {
+                            unequipRangedWeapon(villager);
+                        }
+                    } catch {}
                 }
             }
         }
@@ -119,7 +135,6 @@ export class FletcherManager {
         this.records.set(villager.id, {
             state: isNight ? FletcherState.SLEEPING : FletcherState.IDLE,
             villager: villager,
-            targetMonster: null,
             targetBlock: null,
             shootingSpot: null,
             preferredWeapon: weaponType,
@@ -161,8 +176,11 @@ export class FletcherManager {
         for (const [id, record] of this.records.entries()) {
             const { villager } = record;
 
-            // Handle despawned or unloaded entities
-            if (!villager || !villager.isValid()) {
+            // Handle despawned, unloaded, or changed entities
+            if (!villager || !villager.isValid() || !this.isFletcherVillager(villager)) {
+                if (villager && villager.isValid()) {
+                    unequipRangedWeapon(villager);
+                }
                 this.records.delete(id);
                 continue;
             }
@@ -178,7 +196,6 @@ export class FletcherManager {
                 } catch {}
 
                 record.state = FletcherState.SLEEPING;
-                record.targetMonster = null;
                 record.targetBlock = null;
                 record.shootingSpot = null;
                 continue;
@@ -213,17 +230,18 @@ export class FletcherManager {
             case FletcherState.IDLE: {
                 record.timer--;
                 if (record.timer <= 0) {
-                    record.timer = 15;
+                    record.timer = 20;
 
                     // Ensure weapon is equipped
                     equipRangedWeapon(villager, record.preferredWeapon);
 
                     // 1. PRIORITY 1: Check for nearby hostile monsters
+                    // Native Bedrock AI (ranged_attack, shooter, charge_held_item, nearest_attackable_target)
+                    // automatically acquires, aims at, and shoots monsters!
                     const monster = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
                     if (monster) {
-                        record.targetMonster = monster;
                         record.state = FletcherState.COMBAT;
-                        record.timer = 10; // Rapid reaction time (0.5s)
+                        record.timer = 20;
                         break;
                     }
 
@@ -252,57 +270,22 @@ export class FletcherManager {
             }
 
             case FletcherState.COMBAT: {
-                // Instantly re-verify monster target
-                if (!record.targetMonster || !record.targetMonster.isValid()) {
-                    // Check if other monsters are still nearby
-                    const nextMob = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
-                    if (nextMob) {
-                        record.targetMonster = nextMob;
-                        record.timer = 10;
-                    } else {
-                        // All monsters cleared!
-                        record.targetMonster = null;
+                // Ensure weapon is equipped for native Bedrock ranged attack
+                equipRangedWeapon(villager, record.preferredWeapon);
+
+                record.timer--;
+                if (record.timer <= 0) {
+                    record.timer = 20;
+                    // Check if monsters are still nearby
+                    const monster = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
+                    if (!monster) {
+                        // Village is safe! Return to idle
                         record.state = FletcherState.COOLDOWN;
-                        record.timer = 30;
+                        record.timer = 40;
                         try {
                             villager.triggerEvent("minecraft:schedule_wander_villager");
                         } catch {}
                     }
-                    break;
-                }
-
-                // Check distance
-                const dist = distance(villager.location, record.targetMonster.location);
-                if (dist > FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS + 4.0) {
-                    // Monster walked out of range
-                    record.targetMonster = null;
-                    record.state = FletcherState.IDLE;
-                    record.timer = 10;
-                    break;
-                }
-
-                record.timer--;
-
-                // Prepare shot: play draw sound when aiming starts
-                if (record.timer === FLETCHER_CONFIG.AIM_DURATION_TICKS - 4) {
-                    const isCrossbow = isHoldingCrossbow(villager);
-                    if (isCrossbow) {
-                        playSoundSafe(villager.dimension, "crossbow.loading_start", villager.location, { volume: 0.8, pitch: 1.0 });
-                    } else {
-                        playSoundSafe(villager.dimension, "random.bow", villager.location, { volume: 0.6, pitch: 0.9 });
-                    }
-                    try {
-                        villager.playAnimation("animation.villager.raise_arms");
-                    } catch {}
-                }
-
-                // Shoot arrow at monster!
-                if (record.timer <= 0) {
-                    const isCrossbow = isHoldingCrossbow(villager);
-                    shootArrowAtEntity(villager, record.targetMonster, isCrossbow);
-
-                    // Reset attack cooldown for next shot
-                    record.timer = FLETCHER_CONFIG.ATTACK_INTERVAL_TICKS;
                 }
                 break;
             }
@@ -314,9 +297,8 @@ export class FletcherManager {
                     try {
                         villager.triggerEvent("rpc:stop_approach_target");
                     } catch {}
-                    record.targetMonster = hostile;
                     record.state = FletcherState.COMBAT;
-                    record.timer = 10;
+                    record.timer = 20;
                     break;
                 }
 
@@ -346,16 +328,15 @@ export class FletcherManager {
                 // Immediate monster interruption check
                 const hostile = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
                 if (hostile) {
-                    record.targetMonster = hostile;
                     record.state = FletcherState.COMBAT;
-                    record.timer = 10;
+                    record.timer = 20;
                     break;
                 }
 
                 record.timer--;
 
                 // Prepare shot: play bow draw sound
-                if (record.timer === FLETCHER_CONFIG.AIM_DURATION_TICKS - 4) {
+                if (record.timer === Math.floor(FLETCHER_CONFIG.AIM_DURATION_TICKS / 2)) {
                     const isCrossbow = isHoldingCrossbow(villager);
                     if (isCrossbow) {
                         playSoundSafe(villager.dimension, "crossbow.loading_start", villager.location, { volume: 0.8, pitch: 1.0 });
@@ -387,9 +368,8 @@ export class FletcherManager {
                 // If a monster enters during cooldown, immediately engage combat
                 const hostile = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
                 if (hostile) {
-                    record.targetMonster = hostile;
                     record.state = FletcherState.COMBAT;
-                    record.timer = 10;
+                    record.timer = 20;
                     break;
                 }
 

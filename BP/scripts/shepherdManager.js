@@ -52,6 +52,13 @@ export class ShepherdManager {
     isShepherdVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
+        // Exclude other custom professions
+        try {
+            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:fisherman")) {
+                return false;
+            }
+        } catch {}
+
         try {
             if (entity.matches({ families: ["shepherd"] })) return true;
         } catch {}
@@ -92,6 +99,15 @@ export class ShepherdManager {
             if (!this.records.has(villager.id)) {
                 if (this.isShepherdVillager(villager)) {
                     this.registerShepherd(villager);
+                } else {
+                    // Safety check: if an entity is NOT a shepherd but happens to hold shears, unequip it
+                    try {
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        const item = equippable?.getEquipment("Mainhand");
+                        if (item && (item.typeId === "minecraft:shears" || item.typeId === "rpc:shears")) {
+                            unequipShears(villager);
+                        }
+                    } catch {}
                 }
             }
         }
@@ -114,6 +130,9 @@ export class ShepherdManager {
         const isNight = this.isNightTime();
         if (!isNight) {
             equipShears(villager);
+            try {
+                villager.triggerEvent("minecraft:schedule_wander_villager");
+            } catch {}
         }
 
         this.records.set(villager.id, {
@@ -140,8 +159,11 @@ export class ShepherdManager {
         for (const [id, record] of this.records.entries()) {
             const { villager } = record;
 
-            // Handle despawned or unloaded entities
-            if (!villager || !villager.isValid()) {
+            // Handle despawned, unloaded, or changed entities
+            if (!villager || !villager.isValid() || !this.isShepherdVillager(villager)) {
+                if (villager && villager.isValid()) {
+                    unequipShears(villager);
+                }
                 this.records.delete(id);
                 continue;
             }
