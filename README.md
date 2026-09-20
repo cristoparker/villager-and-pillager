@@ -1,92 +1,222 @@
-# Villager Professions Addon (Minecraft Bedrock)
+# Villager & Pillager: Enhanced Villager Professions Addon
+### Minecraft Bedrock Edition (1.21+)
 
-A modular, high-quality Minecraft Bedrock Behavior & Resource Pack that brings **Fisherman**, **Smart Shepherd**, and **Smart Butcher** Villagers to life with realistic autonomous behaviors, authentic tools in hand, workstation interactions, day/night sleeping schedules, and native Bedrock navigation.
+A modular, high-depth Minecraft Bedrock Behavior & Resource Pack that transforms Minecraft villagers into an authentic, living, and capable civilization. Every villager profession features deep autonomous AI behaviors, visual held items, authentic workstation interactions, dynamic day/night sleeping schedules, combat and raid defense routines, and real-time occupation synchronization.
 
 ![Minecraft Bedrock](https://img.shields.io/badge/Minecraft%20Bedrock-1.21+-green.svg)
+![Bedrock Scripting API](https://img.shields.io/badge/Scripting%20API-@minecraft/server-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
 ---
 
-## Features
+## 🌟 Core System Highlights
 
-### 🥩 Smart Butcher Villager
-- **Axe / Cleaver in Hand**:
-  - Visibly holds an **Iron Axe** or **Cleaver** (`minecraft:iron_axe` and `rpc:cleaver`) in hand using a custom attachable model.
-- **Hunting Cows & Pigs**:
-  - Scans up to **24 blocks** away for nearby adult pigs and cows (preserves baby animals).
-  - Uses native Bedrock `minecraft:behavior.follow_mob` pathfinding to smoothly walk up to animals without jumping or hopping.
+- **Dynamic Occupation Synchronization**: When villagers claim, swap, or lose their workstations, their held items, behavior managers, tags, and AI routines dynamically synchronize in real-time. No stuck items or desynced jobs!
+- **Smooth Locomotion & Anti-Jitter**: Custom approach states utilize directional impulse propulsion (`applyImpulse`) and throttled rotation heading, preserving native walking leg animations without teleport freeze or stutter.
+- **Visual Equipment in Hand**: Villagers visibly hold authentic tools, weapons, food, and crafting components matching their profession and current task.
+- **Living Workstation Ecosystem**: Villagers actively operate, cook, craft, and interact with smokers, looms, anvils, grindstones, lecterns, fletching tables, brewing stands, composters, and campfires.
+- **Autonomous Village Defense**: Villagers no longer simply flee from monsters—farmers fight with hoes, weaponsmiths blow war horns and cleave with axes, fletchers fire flaming arrows, armorers block with shields and repair golems, librarians dispel curses, and clerics cast holy sanctuary auras and offensive splash potions.
+
+---
+
+## 🧑‍🌾 Profession Roster & Features
+
+### 🌾 1. Smart Farmer Villager
+- **Held Items**: Iron Hoe (`minecraft:iron_hoe`), Bone Meal, Seeds, Wheat, Carrots, Potatoes, Beetroots.
+- **Farmland Tilling & Crop Seeding**:
+  - Automatically detects empty hoed farmland (`minecraft:farmland`) and plants wheat, carrot, potato, or beetroot crops with seed planting audio and particles.
+- **Bone Meal Fertilization**:
+  - Scans for growing crops (`growth < 7`) and applies bone meal, instantly advancing growth stages with green bone meal particle bursts and audio.
+  - Applies bone meal to young saplings to sprout them into full-grown trees with natural logs and leaf canopies.
+- **Crop Harvesting & Replanting**:
+  - Identifies ripe crops (`growth === 7`), harvests them with hoe-swinging animations, drops produce items, and immediately replants seeds on the farmland.
+- **Composter Cycling**:
+  - Gathers surplus seeds and fills village composters (`minecraft:composter`) to produce fresh bone meal.
+- **Flower & Tree Planting**:
+  - Regularly plants wildflowers (`dandelions`, `poppies`, `alliums`, `tulips`, `cornflowers`, `oxeye daisies`) and tree saplings across dirt and grass blocks to beautify the village.
+- **Animal Breeding & Baby Care**:
+  - **Adult Breeding**: Detects pairs of adult cows, sheep, chickens, and pigs, equips their favorite food (wheat, seeds, or carrots), feeds both parents, emits heart particles, and breeds baby animals with a 60-second cooldown.
+  - **Baby Animal Maturation**: Spots baby animals, approaches with food in hand, feeds them, and accelerates their growth into mature adults.
+- **Combat Defense**:
+  - When threatened by monsters within 14 blocks, brandishes an Iron Hoe, charges the enemy, and inflicts melee damage with critical hit particles.
+
+---
+
+### 🥩 2. Smart Butcher Villager
+- **Held Items**: Iron Axe (`minecraft:iron_axe`) or Custom Cleaver (`rpc:cleaver`).
+- **Livestock Hunting**:
+  - Scans up to 24 blocks for adult pigs and cows (always preserves baby animals).
+  - Uses native pursuit pathfinding and smooth forward momentum to approach targets.
 - **Slaughter & Meat Gathering**:
-  - When in range, swings weapon with attack sounds and particles.
-  - Drops raw porkchop or raw beef (and leather).
-  - Gathers the raw meat and celebrates with happy villager effects.
+  - Executes cleaving weapon swings with impact sounds, harvesting raw porkchop, beef, and leather.
+  - Emits happy villager particles upon collecting meat.
 - **Smoker Workstation Cooking**:
-  - Scans for the nearest **Smoker** block (`minecraft:smoker` or `minecraft:lit_smoker`) within 32 blocks (the Butcher's actual village POI workstation).
-  - Walks to the Smoker.
-  - Places **2 Coals** into Fuel Slot 1 and the **Raw Meat** into Cooking Slot 0.
-  - Plays smoker sizzling audio (`random.fizz`) and chimney smoke particles (`minecraft:smoker_smoke_particle`) as the meat begins cooking!
-- **Day / Night Sleeping Routine**:
-  - At sunset (`time >= 12000`), puts away weapon and sleeps in bed.
-  - At sunrise, wakes up, re-equips weapon, and resumes work.
+  - Pathfinds to the nearest village **Smoker** block (`minecraft:smoker` or `minecraft:lit_smoker`).
+  - Automatically loads fuel (coal) into the fuel slot and raw meat into the cooking slot.
+  - Activates smoking sizzle audio (`random.fizz`) and chimney smoke particles (`minecraft:smoker_smoke_particle`).
 
 ---
 
-### 🐑 Smart Shepherd Villager
-- **Spawn With Leashed Sheep**:
-  - Automatically spawns with **2 companion sheep** connected with a leash/rope to the villager, just like the Wandering Trader with llamas.
-- **Shears in Hand**:
-  - Correctly holds shears in hand (`minecraft:shears` and `rpc:shears`) upright and facing forward at chest level.
-- **Smooth Native Movement**:
-  - Uses Minecraft's native `minecraft:behavior.follow_mob` pathfinding to search and smoothly walk towards nearby sheep without jumping or hopping.
-- **Authentic Shearing Action**:
-  - Scans for nearby adult sheep with wool.
-  - Raises arms, snips shears with authentic `mob.sheep.shear` audio, wool pop particles, and triggers `minecraft:on_sheared`.
-  - Drops 1 to 2 matching colored wool blocks according to the sheep's color.
-  - Celebrates with happy villager particles and sounds.
-- **Day / Night Sleeping Routine**:
-  - At sunset (`time >= 12000`), puts away shears and sleeps in bed.
-  - At sunrise (`time < 12000`), wakes up, re-equips shears, and returns to tending sheep.
+### 🐑 3. Smart Shepherd Villager
+- **Held Items**: Shears (`rpc:shears` and `minecraft:shears`), Dyes, Wheat, Carpets.
+- **Starter Flock**:
+  - Spawns accompanied by **2 leashed companion sheep** connected by leash ropes, following the shepherd naturally.
+- **Authentic Sheep Shearing**:
+  - Detects adult sheep with wool, walks up smoothly, snips shears (`mob.sheep.shear`), triggers `minecraft:on_sheared`, and drops 1–2 matching wool blocks.
+- **Colorful Wool Dyeing**:
+  - Equips dyes (red, blue, yellow, green, purple, orange, pink, cyan) and dyes plain white sheep into vibrant colorful variants with wool dyeing sound and sparkles.
+- **Flock Wheat Feeding**:
+  - Detects sheared sheep, equips wheat, feeds them to regrow their fleece immediately, and emits heart particles.
+- **Predator Repulsion**:
+  - Spots hostile wolves or foxes threatening sheep, charges forward with snapping shears, and repels predators with knockback impulses.
+- **Loom Carpet Weaving**:
+  - Visits village looms (`minecraft:loom`), works with weaving animations and cloth sounds, and crafts decorative carpets (`minecraft:white_carpet`).
 
 ---
 
-### 🎣 Fisherman Villager
-- **Autonomous River & Water Detection**:
-  - Scans up to **48 blocks** away for rivers and open water bodies.
-  - Smooth shore pathfinding; stands firmly on land and never falls into water.
-- **Realistic Projectile Throw & Reel-In Physics**:
-  - Fishing hook launches directly from rod tip in natural ballistic arc.
-  - Hook bobs on water waves; tugs downward with wake rings and bubbles on bite.
-  - Full ballistic trajectory reel-in returning hook and caught fish to hands.
-- **Continuous Catenary Particle Rope**:
-  - Fine black particle string with gravity sag when slack, and tension vibration when a fish bites.
-- **Natural Day / Night Sleeping Schedule**:
-  - Sleeps in bed at night; resumes fishing at sunrise.
+### 🛡️ 4. Smart Armorer Villager
+- **Held Items**: Iron Ingot (`minecraft:iron_ingot`), Shield (`minecraft:shield`), Iron Chestplate (`minecraft:iron_chestplate`).
+- **Iron Golem Repair**:
+  - Actively patrols for cracked or injured village Iron Golems.
+  - Equips iron ingots, hammers the golem, plays authentic metallic anvil ding sounds, and restores the golem's health.
+- **Ally Fortification Blessing**:
+  - Scans for unfortified villagers and players, equips an iron chestplate in hand, and casts a fortification blessing conferring **Resistance** and **Absorption** accompanied by beacon chimes.
+- **Anvil Hammering & Forging**:
+  - Approaches village anvils (`minecraft:anvil`, chipped, or damaged), hammering with rhythmic metallic dings and fiery spark particles (`minecraft:crit`).
+- **Active Shield Combat Blocking**:
+  - When hostile monsters approach within 12 blocks, equips an authentic **Shield** in mainhand, enters defensive blocking stance, and deflects monster strikes.
+- **Automated Iron Golem Construction**:
+  - If all village golems are defeated during raids or monster swarms, conducts an emergency forge ritual, constructing an Iron Golem with celebratory fireworks and thunderous forge audio.
 
 ---
 
-## Custom Content (Namespace: `rpc`)
-
-- `rpc:cleaver`: Custom Butcher Cleaver weapon equipped in main hand.
-- `rpc:shears`: Custom Shepherd Shears item equipped in main hand.
-- `rpc:fishing_rod`: Custom fishing rod item equipped in main hand.
-- `rpc:fishing_bobber`: Custom floating fishing bobber entity.
-- `rpc:fishing_line_particle`: High-precision translucent particle string.
-
----
-
-## Installation
-
-### Automatic (`.mcaddon`)
-1. Double-click `FishermanVillager.mcaddon`.
-2. Minecraft Bedrock will automatically import both the Behavior Pack and Resource Pack.
-3. Activate both packs in your world settings (ensure **Beta APIs** / Scripting is enabled).
-
-### Development Mode
-Run `update_addon.bat` to mirror the Behavior Pack (`BP`) and Resource Pack (`RP`) directly into your Minecraft Bedrock development directories.
+### ⚔️ 5. Smart Weaponsmith Villager
+- **Held Items**: Iron Sword (`minecraft:iron_sword`), Iron Axe (`minecraft:iron_axe`), Goat Horn (`minecraft:goat_horn`).
+- **Grindstone Blade Sharpening**:
+  - Visits village grindstones (`minecraft:grindstone`), equips a sword or axe, and hones the blade edge with authentic grinding sounds and spark particles.
+- **War Horn Call to Arms**:
+  - When raids or monster swarms threaten the village, equips a **Goat Horn**, sounds the resounding horn blast (`item.goat_horn.sound.0`), and rallies all villagers and players with **Strength** and **Speed**.
+- **Ally Blade Sharpening**:
+  - Sharpens the weapons of nearby combat-ready allies and players, conferring **Strength I** for 30 seconds.
+- **Dynamic Combat Stances**:
+  - Engages hostile monsters directly in melee combat, dynamically swapping between **Iron Axe** (for shield-breaking heavy cleaves) and **Iron Sword** (for fast combat strikes).
 
 ---
 
-## How to Use in Game
+### 🏹 6. Smart Fletcher Villager
+- **Held Items**: Bow (`minecraft:bow`), Crossbow (`minecraft:crossbow`), Arrow (`minecraft:arrow`).
+- **Bow & Crossbow Archery**:
+  - Patrols the village perimeter; upon detecting monsters up to 16 blocks away, takes aim, draws the bowstring (`random.bow` / `crossbow.loading_start`), and releases ballistic arrows with accurate trajectories and critical hit particles.
+- **Fire-Tipped Flaming Arrows**:
+  - When firing within 4 blocks of a torch, campfire, or fire source, the fletcher dips arrows in flame (`minecraft:basic_flame_particle`), launching flaming projectiles that ignite hostiles on fire.
+- **Tactical Combat Debuffs**:
+  - Inflicts tailored tactical debuffs based on monster anatomy:
+    - **Spiders & Creepers**: Afflicted with **Slowness** to prevent closing the distance.
+    - **Illagers & Pillagers**: Afflicted with **Poison** to steadily drain their health.
+- **Fletching Table Arrow Crafting**:
+  - Gathers at fletching tables (`minecraft:fletching_table`), crafts tipped arrows with wood-carving sounds, and drops fresh arrows for village supply.
+- **Target Block Archery Practice**:
+  - During peaceful hours, finds village target blocks (`minecraft:target`), steps back into shooting range, and conducts target practice.
 
-- **Butcher**: Spawn a Butcher or right-click any villager with an **Iron Axe** or **Cleaver**. Watch them hunt pigs/cows, gather meat, and load coal & meat into the village Smoker!
-- **Shepherd**: Spawn a Shepherd or right-click any villager with **Shears**. Watch them spawn with 2 leashed sheep, hold shears upright in hand, and shear nearby sheep!
-- **Fisherman**: Spawn a Fisherman or right-click any villager with `rpc:fishing_rod`. Watch them find rivers, cast their hook, and reel in fresh fish!
+---
+
+### 🎣 7. Smart Fisherman Villager
+- **Held Items**: Custom Fishing Rod (`rpc:fishing_rod`), Raw/Cooked Fish, Fish Buckets.
+- **Autonomous Shoreline Fishing**:
+  - Detects natural rivers, oceans, and ponds up to 48 blocks away.
+  - Casts a realistic ballistic bobber entity connected by a dynamic catenary particle rope (`rpc:fishing_line_particle`).
+  - Reacts to water wave bites with wake particles, downward bobber tugs, and reels in authentic fish catch directly to hand.
+- **Stray Cat Feeding & Taming**:
+  - Scans for stray village cats, equips raw cod or salmon, approaches gently, and feeds them into loyal village creeper wardens.
+- **Campfire Fish Cooking**:
+  - Visits lit village campfires (`minecraft:campfire`), cooks raw catch over the open flames, and produces steaming cooked fish.
+- **River & Pond Restocking**:
+  - Equips water and tropical fish buckets, releasing lively fish into local ponds with water splash sounds.
+
+---
+
+### 📚 8. Smart Librarian Villager
+- **Held Items**: Enchanted Book (`minecraft:enchanted_book`), Regular Book (`minecraft:book`), Paper (`minecraft:paper`).
+- **Sugarcane Plantation**:
+  - Identifies sand, dirt, or grass blocks adjacent to water and plants sugarcane (`minecraft:reeds`).
+  - Monitors sugarcane growth: sustainably harvests upper stalks (height $\ge 2$) while leaving the root block intact to regrow indefinitely.
+- **Lectern Paper & Book Crafting**:
+  - Studies at lecterns (`minecraft:lectern`), turns pages with paper in hand (`item.book.page_turn`), and binds fresh paper and books.
+- **Enchanting Blessings**:
+  - Channels runic glyphs from the lectern (`minecraft:enchanting_table_particle`), bestowing **Haste** and **Regeneration** on nearby villagers and players.
+- **Curse & Debuff Dispel**:
+  - Scans for allies afflicted with harmful status effects (Poison, Slowness, Weakness, Wither, Blindness, Hunger), walks over, and purges all negative debuffs with amethyst chimes (`chime.amethyst_block`) and totem sparkles.
+
+---
+
+### 🧪 9. Smart Cleric Villager
+- **Held Items**: Splash Potion (`minecraft:splash_potion`), Potion (`minecraft:potion`), Golden Apple (`minecraft:golden_apple`).
+- **Zombie Villager Curing Ritual**:
+  - Detects nearby Zombie Villagers, hurls a splash potion of Weakness, feeds them a Golden Apple with eating sounds, emits golden totem particles, and triggers the `minecraft:start_transforming` transformation ritual to cure them!
+- **Holy Sanctuary Defensive Aura**:
+  - During raids or monster swarms, raises arms and channels a radiant circular sanctuary barrier (`minecraft:endrod` and `minecraft:totem_particle`), violently knocking back monsters while granting allies **Absorption** and **Regeneration**.
+- **Brewing Stand Alchemy**:
+  - Visits village brewing stands (`minecraft:brewing_stand`), plays bubbling brew sounds, and produces healing and splash potions.
+- **Witcher Regeneration & Combat Potions**:
+  - Drinks self-regeneration potions when low on health, and hurls tactical splash potions:
+    - **Living Monsters & Pillagers**: Inflicted with **Slowness** and **Poison**.
+    - **Undead Monsters (Zombies, Skeletons)**: Inflicted with **Weakness** and **Instant Damage**.
+
+---
+
+## 🔄 Dynamic Occupation Synchronizer
+
+The addon includes an automated synchronizer module (`professionHelper.js`) that monitors every villager every 15 ticks:
+1. Detects changes in the villager's underlying workstation profession (via `minecraft:variant` and `type_family`).
+2. If a villager changes workstation or loses their job:
+   - Clears old held items and tags immediately.
+   - Clears any leashed starter sheep.
+   - Unregisters the villager from previous managers.
+   - Registers them to their new profession manager, equipping the proper tool and tags seamlessly.
+
+---
+
+## 📦 Custom Items & Entities (Namespace: `rpc`)
+
+| Identifier | Description |
+|---|---|
+| `rpc:fishing_rod` | Custom 3D animated fishing rod item. |
+| `rpc:fishing_bobber` | Ballistic water-floating bobber entity with wake particles. |
+| `rpc:fishing_line_particle` | High-precision catenary particle line connecting rod tip to bobber. |
+| `rpc:shears` | Custom Shepherd shears model held upright in hand. |
+| `rpc:cleaver` | Heavy butcher cleaver weapon for livestock harvesting. |
+
+---
+
+## 🚀 Installation & Setup
+
+### Requirements
+- **Minecraft Bedrock Edition** v1.21.0 or higher.
+- Enable the following **Experimental Features** in world settings:
+  - **Beta APIs** (Required for `@minecraft/server` scripting).
+
+### Quick Install (`.mcaddon`)
+1. Download or locate `FishermanVillager.mcaddon`.
+2. Double-click or open with Minecraft Bedrock to automatically import both Behavior and Resource packs.
+3. Apply both packs to your world.
+
+### Development Mode (Automatic Sync)
+Run the included batch script from the repository root:
+```cmd
+update_addon.bat
+```
+This automatically synchronizes changes from `BP/` and `RP/` directly into your local Minecraft Bedrock development folders and rebuilds the `.mcaddon` bundle.
+
+---
+
+## 🎮 How to Test In-Game
+
+- **Farmer**: Place a Composter or summon a farmer (`/summon villager_v2 ~ ~ ~ 0 1`). Hoe some farmland nearby, plant saplings, or place cows/sheep/pigs/chickens to watch breeding and feeding!
+- **Butcher**: Place a Smoker or spawn a butcher (`/summon villager_v2 ~ ~ ~ 0 11`). Spawn cows or pigs nearby and watch the butcher hunt, gather, and smoke meat!
+- **Shepherd**: Place a Loom or spawn a shepherd (`/summon villager_v2 ~ ~ ~ 0 3`). The shepherd spawns with 2 leashed sheep, shears them, dyes them, and feeds them wheat!
+- **Armorer**: Place a Blast Furnace or Anvil (`/summon villager_v2 ~ ~ ~ 0 8`). Damage an Iron Golem nearby to watch the armorer repair it with ingots!
+- **Weaponsmith**: Place a Grindstone (`/summon villager_v2 ~ ~ ~ 0 9`). Trigger a raid or spawn monsters nearby to hear the war horn call to arms!
+- **Fletcher**: Place a Fletching Table or Target (`/summon villager_v2 ~ ~ ~ 0 4`). Spawn hostile monsters nearby to watch arrow archery and flaming arrows near torches!
+- **Fisherman**: Place a Barrel near water (`/summon villager_v2 ~ ~ ~ 0 2`). Watch the fisherman detect water, cast, and reel in catch!
+- **Librarian**: Place a Lectern near water (`/summon villager_v2 ~ ~ ~ 0 5`). Watch them plant and harvest sugarcane, study, and dispel negative curses from allies!
+- **Cleric**: Place a Brewing Stand (`/summon villager_v2 ~ ~ ~ 0 7`). Spawn a Zombie Villager nearby to watch the weakness + golden apple curing ritual!

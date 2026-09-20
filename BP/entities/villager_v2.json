@@ -36,7 +36,29 @@
               "minecraft:wheat_seeds",
               "minecraft:carrot",
               "minecraft:potato",
-              "minecraft:beetroot"
+              "minecraft:beetroot",
+              "minecraft:shield",
+              "minecraft:iron_chestplate",
+              "minecraft:red_dye",
+              "minecraft:blue_dye",
+              "minecraft:yellow_dye",
+              "minecraft:green_dye",
+              "minecraft:purple_dye",
+              "minecraft:orange_dye",
+              "minecraft:pink_dye",
+              "minecraft:cyan_dye",
+              "minecraft:golden_apple",
+              "minecraft:cod",
+              "minecraft:cooked_cod",
+              "minecraft:salmon",
+              "minecraft:cooked_salmon",
+              "minecraft:tropical_fish_bucket",
+              "minecraft:water_bucket",
+              "minecraft:paper",
+              "minecraft:arrow",
+              "minecraft:carpet",
+              "minecraft:white_carpet",
+              "minecraft:goat_horn"
             ]
           }
         ]

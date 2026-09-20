@@ -4,7 +4,7 @@
  * wool drop mechanics, and leashing 2 starter sheep to the Shepherd.
  */
 
-import { ItemStack, EquipmentSlot } from "@minecraft/server";
+import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { SHEPHERD_CONFIG } from "./config.js";
 import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
 
@@ -234,6 +234,322 @@ export function performShear(villager, sheep) {
         z: villager.location.z
     });
     playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
+
+    return true;
+}
+
+/**
+ * Equips dye in the villager's main hand.
+ * @param {Entity} villager 
+ * @param {string} dyeItemId 
+ */
+export function equipDye(villager, dyeItemId) {
+    if (!villager || !villager.isValid() || !dyeItemId) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === dyeItemId) return;
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(dyeItemId, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${dyeItemId}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Equips wheat in the villager's main hand.
+ * @param {Entity} villager 
+ */
+export function equipWheat(villager) {
+    if (!villager || !villager.isValid()) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === SHEPHERD_CONFIG.WHEAT_ITEM_ID) return;
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(SHEPHERD_CONFIG.WHEAT_ITEM_ID, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${SHEPHERD_CONFIG.WHEAT_ITEM_ID}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Finds a nearby white (undyed) adult sheep.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyWhiteSheep(dimension, location, radius = SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+    let candidates = [];
+    try {
+        candidates = dimension.getEntities({
+            type: "minecraft:sheep",
+            location: location,
+            maxDistance: radius
+        });
+    } catch {
+        return null;
+    }
+
+    let closest = null;
+    let closestDist = Infinity;
+    for (const sheep of candidates) {
+        if (!sheep || !sheep.isValid()) continue;
+        try {
+            if (sheep.getComponent("minecraft:is_baby")) continue;
+            if (sheep.getComponent("minecraft:is_sheared")) continue;
+            if (sheep.hasTag("rpc:recently_dyed")) continue;
+            const colorComp = sheep.getComponent("minecraft:color");
+            if (colorComp && colorComp.value === 0) {
+                const d = distance(location, sheep.location);
+                if (d < closestDist) {
+                    closestDist = d;
+                    closest = sheep;
+                }
+            }
+        } catch {}
+    }
+    return closest;
+}
+
+/**
+ * Dyes a white sheep a random color from config.
+ * @param {Entity} villager 
+ * @param {Entity} sheep 
+ * @param {object} dyeDef 
+ */
+export function performDyeSheep(villager, sheep, dyeDef) {
+    if (!villager || !villager.isValid() || !sheep || !sheep.isValid() || !dyeDef) return false;
+    const dim = villager.dimension;
+    const sLoc = sheep.location;
+
+    try {
+        const rot = getLookRotation(villager.location, sLoc);
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "item.dye.use", sLoc, { volume: 1.0, pitch: 1.1 });
+    playSoundSafe(dim, "random.pop", sLoc, { volume: 0.9, pitch: 1.2 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: sLoc.x, y: sLoc.y + 0.8, z: sLoc.z });
+
+    try {
+        sheep.triggerEvent(dyeDef.event);
+        sheep.addTag("rpc:recently_dyed");
+        system.runTimeout(() => {
+            try {
+                if (sheep.isValid()) sheep.removeTag("rpc:recently_dyed");
+            } catch {}
+        }, 1200);
+    } catch {}
+
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
+    return true;
+}
+
+/**
+ * Finds a nearby sheared sheep that needs wheat to regrow wool.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyShearedSheep(dimension, location, radius = SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+    let candidates = [];
+    try {
+        candidates = dimension.getEntities({
+            type: "minecraft:sheep",
+            location: location,
+            maxDistance: radius
+        });
+    } catch {
+        return null;
+    }
+
+    let closest = null;
+    let closestDist = Infinity;
+    for (const sheep of candidates) {
+        if (!sheep || !sheep.isValid()) continue;
+        try {
+            if (sheep.getComponent("minecraft:is_baby")) continue;
+            if (sheep.hasTag("rpc:recently_fed")) continue;
+            if (sheep.getComponent("minecraft:is_sheared")) {
+                const d = distance(location, sheep.location);
+                if (d < closestDist) {
+                    closestDist = d;
+                    closest = sheep;
+                }
+            }
+        } catch {}
+    }
+    return closest;
+}
+
+/**
+ * Feeds wheat to a sheared sheep to accelerate wool regrowth.
+ * @param {Entity} villager 
+ * @param {Entity} sheep 
+ */
+export function performFeedWheat(villager, sheep) {
+    if (!villager || !villager.isValid() || !sheep || !sheep.isValid()) return false;
+    const dim = villager.dimension;
+    const sLoc = sheep.location;
+
+    try {
+        const rot = getLookRotation(villager.location, sLoc);
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "random.eat", sLoc, { volume: 1.0, pitch: 1.2 });
+    spawnParticleSafe(dim, "minecraft:crop_growth_area_emitter", { x: sLoc.x, y: sLoc.y + 0.5, z: sLoc.z });
+    spawnParticleSafe(dim, "minecraft:heart_particle", { x: sLoc.x, y: sLoc.y + 0.8, z: sLoc.z });
+
+    try {
+        sheep.triggerEvent("minecraft:on_eat_grass");
+        sheep.addTag("rpc:recently_fed");
+        system.runTimeout(() => {
+            try {
+                if (sheep.isValid()) sheep.removeTag("rpc:recently_fed");
+            } catch {}
+        }, 600);
+    } catch {}
+
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
+    return true;
+}
+
+/**
+ * Scans for wild wolves or foxes threatening the flock.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyPredators(dimension, location, radius = SHEPHERD_CONFIG.PREDATOR_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+    const predatorTypes = ["minecraft:wolf", "minecraft:fox"];
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (const pType of predatorTypes) {
+        try {
+            const entities = dimension.getEntities({
+                type: pType,
+                location: location,
+                maxDistance: radius
+            });
+            for (const entity of entities) {
+                if (!entity || !entity.isValid()) continue;
+                try {
+                    if (entity.getComponent("minecraft:is_tamed")) continue;
+                } catch {}
+                const d = distance(location, entity.location);
+                if (d < closestDist) {
+                    closestDist = d;
+                    closest = entity;
+                }
+            }
+        } catch {}
+    }
+    return closest;
+}
+
+/**
+ * Scares away a predator by snapping shears aggressively with knockback.
+ * @param {Entity} villager 
+ * @param {Entity} predator 
+ */
+export function performScarePredator(villager, predator) {
+    if (!villager || !villager.isValid() || !predator || !predator.isValid()) return false;
+    const dim = villager.dimension;
+    const pLoc = predator.location;
+    const vLoc = villager.location;
+
+    try {
+        const rot = getLookRotation(vLoc, pLoc);
+        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "mob.sheep.shear", vLoc, { volume: 1.2, pitch: 1.3 });
+    playSoundSafe(dim, "mob.villager.no", vLoc, { volume: 1.0, pitch: 1.0 });
+    spawnParticleSafe(dim, "minecraft:crit", { x: pLoc.x, y: pLoc.y + 0.6, z: pLoc.z });
+
+    try {
+        const dx = pLoc.x - vLoc.x;
+        const dz = pLoc.z - vLoc.z;
+        const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+        predator.applyImpulse({ x: (dx / len) * 0.45, y: 0.25, z: (dz / len) * 0.45 });
+    } catch {}
+
+    return true;
+}
+
+/**
+ * Scans for a nearby Loom workstation.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyLoom(dimension, location, radius = SHEPHERD_CONFIG.LOOM_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+
+    for (let dx = -radius; dx <= radius; dx += 2) {
+        for (let dz = -radius; dz <= radius; dz += 2) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                try {
+                    const block = dimension.getBlock(pos);
+                    if (block && block.typeId === SHEPHERD_CONFIG.LOOM_ID) {
+                        return { block, pos };
+                    }
+                } catch {}
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Operates loom to weave carpets.
+ * @param {Entity} villager 
+ * @param {Vector3} loomPos 
+ */
+export function performLoomWeaving(villager, loomPos) {
+    if (!villager || !villager.isValid() || !loomPos) return false;
+    const dim = villager.dimension;
+
+    try {
+        const rot = getLookRotation(villager.location, { x: loomPos.x + 0.5, y: loomPos.y + 0.5, z: loomPos.z + 0.5 });
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "block.loom.use", loomPos, { volume: 1.0, pitch: 1.0 });
+    spawnParticleSafe(dim, "minecraft:balloon_pop_particle", { x: loomPos.x + 0.5, y: loomPos.y + 0.8, z: loomPos.z + 0.5 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: loomPos.x + 0.5, y: loomPos.y + 1.2, z: loomPos.z + 0.5 });
+
+    try {
+        dim.spawnItem(new ItemStack("minecraft:white_carpet", 1), {
+            x: loomPos.x + 0.5,
+            y: loomPos.y + 0.6,
+            z: loomPos.z + 0.5
+        });
+    } catch {}
 
     return true;
 }

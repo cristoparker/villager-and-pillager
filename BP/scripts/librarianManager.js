@@ -12,10 +12,15 @@ import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipBook,
     unequipBook,
+    equipPaper,
     findNearbyLectern,
     isMonsterThreatNearby,
     performStudy,
     performInspirationBuff,
+    performCraftBooks,
+    performEnchantingBlessing,
+    findNearbyAfflictedAlly,
+    performDispelCurse,
     findNearbySugarcanePlantingSpot,
     performPlantSugarcane,
     findGrownSugarcane,
@@ -25,8 +30,13 @@ import {
 export const LibrarianState = {
     IDLE: "IDLE",
     INSPIRING: "INSPIRING",
+    APPROACHING_DISPEL: "APPROACHING_DISPEL",
+    DISPELLING_CURSE: "DISPELLING_CURSE",
     APPROACHING_LECTERN: "APPROACHING_LECTERN",
     STUDYING: "STUDYING",
+    APPROACHING_LECTERN_CRAFT: "APPROACHING_LECTERN_CRAFT",
+    CRAFTING_BOOKS: "CRAFTING_BOOKS",
+    ENCHANTING_BLESSING: "ENCHANTING_BLESSING",
     APPROACHING_SUGARCANE_SPOT: "APPROACHING_SUGARCANE_SPOT",
     PLANTING_SUGARCANE: "PLANTING_SUGARCANE",
     APPROACHING_GROWN_SUGARCANE: "APPROACHING_GROWN_SUGARCANE",
@@ -200,7 +210,22 @@ export class LibrarianManager {
                         break;
                     }
 
-                    // 2. High priority: Check for grown sugarcane (height >= 2) to harvest for paper!
+                    // 2. Check for afflicted allies needing curse dispel!
+                    const afflicted = findNearbyAfflictedAlly(villager.dimension, villager.location, LIBRARIAN_CONFIG.DISPEL_SEARCH_RADIUS);
+                    if (afflicted) {
+                        record.afflictedAlly = afflicted;
+                        const dist = distance(villager.location, afflicted.location);
+                        if (dist <= 3.0) {
+                            record.state = LibrarianState.DISPELLING_CURSE;
+                            record.timer = 25;
+                        } else {
+                            record.state = LibrarianState.APPROACHING_DISPEL;
+                            record.timer = 90;
+                        }
+                        break;
+                    }
+
+                    // 3. High priority: Check for grown sugarcane (height >= 2) to harvest for paper!
                     const grown = findGrownSugarcane(villager.dimension, villager.location, LIBRARIAN_CONFIG.SUGARCANE_SEARCH_RADIUS);
                     if (grown) {
                         record.grownSugarcane = grown;
@@ -215,8 +240,8 @@ export class LibrarianManager {
                         break;
                     }
 
-                    // 3. Plant sugarcane on water-connected blocks (35% chance)
-                    if (Math.random() < 0.35) {
+                    // 4. Plant sugarcane on water-connected blocks (30% chance)
+                    if (Math.random() < 0.30) {
                         const spot = findNearbySugarcanePlantingSpot(villager.dimension, villager.location, LIBRARIAN_CONFIG.SUGARCANE_SEARCH_RADIUS);
                         if (spot) {
                             record.sugarcaneSpot = spot;
@@ -232,18 +257,42 @@ export class LibrarianManager {
                         }
                     }
 
-                    // 4. Study at Lectern (35% chance)
-                    if (Math.random() < 0.35) {
+                    // 5. Lectern activities: Study, Craft Books, or Enchanting Blessing (45% chance)
+                    if (Math.random() < 0.45) {
                         const lectern = findNearbyLectern(villager.dimension, villager.location, LIBRARIAN_CONFIG.LECTERN_SEARCH_RADIUS);
                         if (lectern) {
                             record.lectern = lectern;
                             const dist = distance(villager.location, lectern.pos);
-                            if (dist <= LIBRARIAN_CONFIG.LECTERN_STUDY_DISTANCE) {
-                                record.state = LibrarianState.STUDYING;
-                                record.timer = LIBRARIAN_CONFIG.STUDY_ANIMATION_TICKS;
+                            const roll = Math.random();
+
+                            if (roll < 0.35) {
+                                // Regular lectern study
+                                if (dist <= LIBRARIAN_CONFIG.LECTERN_STUDY_DISTANCE) {
+                                    record.state = LibrarianState.STUDYING;
+                                    record.timer = LIBRARIAN_CONFIG.STUDY_ANIMATION_TICKS;
+                                } else {
+                                    record.state = LibrarianState.APPROACHING_LECTERN;
+                                    record.timer = 100;
+                                }
+                            } else if (roll < 0.70) {
+                                // Craft books & paper
+                                if (dist <= LIBRARIAN_CONFIG.LECTERN_STUDY_DISTANCE) {
+                                    record.state = LibrarianState.CRAFTING_BOOKS;
+                                    record.timer = 40;
+                                    equipPaper(villager);
+                                } else {
+                                    record.state = LibrarianState.APPROACHING_LECTERN_CRAFT;
+                                    record.timer = 100;
+                                }
                             } else {
-                                record.state = LibrarianState.APPROACHING_LECTERN;
-                                record.timer = 100;
+                                // Enchanting blessing
+                                if (dist <= LIBRARIAN_CONFIG.LECTERN_STUDY_DISTANCE) {
+                                    record.state = LibrarianState.ENCHANTING_BLESSING;
+                                    record.timer = 35;
+                                } else {
+                                    record.state = LibrarianState.APPROACHING_LECTERN;
+                                    record.timer = 100;
+                                }
                             }
                             break;
                         }
@@ -262,27 +311,77 @@ export class LibrarianManager {
                 break;
             }
 
-            case LibrarianState.APPROACHING_GROWN_SUGARCANE: {
+            case LibrarianState.APPROACHING_DISPEL: {
                 record.timer--;
-                if (!record.grownSugarcane) {
+                if (!record.afflictedAlly || !record.afflictedAlly.isValid() || record.timer <= 0) {
                     record.state = LibrarianState.IDLE;
+                    record.afflictedAlly = null;
+                    record.timer = 20;
                     break;
                 }
 
-                const dist = distance(villager.location, record.grownSugarcane.pos);
+                const allyLoc = record.afflictedAlly.location;
+                const dist = distance(villager.location, allyLoc);
+                if (dist <= 3.0) {
+                    record.state = LibrarianState.DISPELLING_CURSE;
+                    record.timer = 25;
+                    break;
+                }
+
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, allyLoc);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = allyLoc.x - villager.location.x;
+                    const dz = allyLoc.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+                break;
+            }
+
+            case LibrarianState.DISPELLING_CURSE: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.afflictedAlly && record.afflictedAlly.isValid()) {
+                        performDispelCurse(villager, record.afflictedAlly);
+                    }
+                    equipBook(villager);
+                    record.afflictedAlly = null;
+                    record.state = LibrarianState.COOLDOWN;
+                    record.timer = 50;
+                }
+                break;
+            }
+
+            case LibrarianState.APPROACHING_GROWN_SUGARCANE: {
+                record.timer--;
+                if (!record.grownSugarcane || record.timer <= 0) {
+                    record.state = LibrarianState.IDLE;
+                    record.grownSugarcane = null;
+                    record.timer = 20;
+                    break;
+                }
+
+                const targetPos = record.grownSugarcane.pos;
+                const dist = distance(villager.location, targetPos);
                 if (dist <= LIBRARIAN_CONFIG.HARVEST_DISTANCE) {
                     record.state = LibrarianState.HARVESTING_SUGARCANE;
                     record.timer = 20;
-                } else if (record.timer <= 0) {
-                    if (dist <= 4.0) {
-                        record.state = LibrarianState.HARVESTING_SUGARCANE;
-                        record.timer = 20;
-                    } else {
-                        record.state = LibrarianState.IDLE;
-                        record.grownSugarcane = null;
-                        record.timer = 20;
-                    }
+                    break;
                 }
+
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = targetPos.x + 0.5 - villager.location.x;
+                    const dz = targetPos.z + 0.5 - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
                 break;
             }
 
@@ -301,20 +400,31 @@ export class LibrarianManager {
 
             case LibrarianState.APPROACHING_SUGARCANE_SPOT: {
                 record.timer--;
-                if (!record.sugarcaneSpot) {
-                    record.state = LibrarianState.IDLE;
-                    break;
-                }
-
-                const dist = distance(villager.location, record.sugarcaneSpot.airPos);
-                if (dist <= LIBRARIAN_CONFIG.PLANT_DISTANCE) {
-                    record.state = LibrarianState.PLANTING_SUGARCANE;
-                    record.timer = 22;
-                } else if (record.timer <= 0) {
+                if (!record.sugarcaneSpot || record.timer <= 0) {
                     record.state = LibrarianState.IDLE;
                     record.sugarcaneSpot = null;
                     record.timer = 20;
+                    break;
                 }
+
+                const targetPos = record.sugarcaneSpot.airPos;
+                const dist = distance(villager.location, targetPos);
+                if (dist <= LIBRARIAN_CONFIG.PLANT_DISTANCE) {
+                    record.state = LibrarianState.PLANTING_SUGARCANE;
+                    record.timer = 22;
+                    break;
+                }
+
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = targetPos.x + 0.5 - villager.location.x;
+                    const dz = targetPos.z + 0.5 - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
                 break;
             }
 
@@ -333,25 +443,62 @@ export class LibrarianManager {
 
             case LibrarianState.APPROACHING_LECTERN: {
                 record.timer--;
-                if (!record.lectern) {
+                if (!record.lectern || record.timer <= 0) {
                     record.state = LibrarianState.IDLE;
+                    record.lectern = null;
+                    record.timer = 20;
                     break;
                 }
 
-                const dist = distance(villager.location, record.lectern.pos);
+                const targetPos = record.lectern.pos;
+                const dist = distance(villager.location, targetPos);
                 if (dist <= LIBRARIAN_CONFIG.LECTERN_STUDY_DISTANCE) {
                     record.state = LibrarianState.STUDYING;
                     record.timer = LIBRARIAN_CONFIG.STUDY_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    if (dist <= 4.0) {
-                        record.state = LibrarianState.STUDYING;
-                        record.timer = LIBRARIAN_CONFIG.STUDY_ANIMATION_TICKS;
-                    } else {
-                        record.state = LibrarianState.IDLE;
-                        record.lectern = null;
-                        record.timer = 20;
-                    }
+                    break;
                 }
+
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = targetPos.x + 0.5 - villager.location.x;
+                    const dz = targetPos.z + 0.5 - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+                break;
+            }
+
+            case LibrarianState.APPROACHING_LECTERN_CRAFT: {
+                record.timer--;
+                if (!record.lectern || record.timer <= 0) {
+                    record.state = LibrarianState.IDLE;
+                    record.lectern = null;
+                    record.timer = 20;
+                    break;
+                }
+
+                const targetPos = record.lectern.pos;
+                const dist = distance(villager.location, targetPos);
+                if (dist <= LIBRARIAN_CONFIG.LECTERN_STUDY_DISTANCE) {
+                    record.state = LibrarianState.CRAFTING_BOOKS;
+                    record.timer = 40;
+                    equipPaper(villager);
+                    break;
+                }
+
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = targetPos.x + 0.5 - villager.location.x;
+                    const dz = targetPos.z + 0.5 - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
                 break;
             }
 
@@ -364,6 +511,32 @@ export class LibrarianManager {
                     record.lectern = null;
                     record.state = LibrarianState.COOLDOWN;
                     record.timer = 40;
+                }
+                break;
+            }
+
+            case LibrarianState.CRAFTING_BOOKS: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.lectern) {
+                        performCraftBooks(villager, record.lectern.pos);
+                    }
+                    record.lectern = null;
+                    record.state = LibrarianState.COOLDOWN;
+                    record.timer = 40;
+                }
+                break;
+            }
+
+            case LibrarianState.ENCHANTING_BLESSING: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.lectern) {
+                        performEnchantingBlessing(villager, record.lectern.pos);
+                    }
+                    record.lectern = null;
+                    record.state = LibrarianState.COOLDOWN;
+                    record.timer = 50;
                 }
                 break;
             }

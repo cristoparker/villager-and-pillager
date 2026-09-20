@@ -5,13 +5,14 @@
  */
 
 import { ItemStack, EquipmentSlot } from "@minecraft/server";
-import { FISHING_CONFIG, LOOT_TABLE } from "./config.js";
+import { FISHING_CONFIG, LOOT_TABLE, FISHERMAN_CONFIG } from "./config.js";
 import { 
     getLookRotation, 
     playSoundSafe, 
     spawnParticleSafe, 
     drawParticleLine, 
-    pickRandomLoot 
+    pickRandomLoot,
+    distance 
 } from "./utils.js";
 import { findCastTarget, findWaterSurfaceY } from "./waterScanner.js";
 
@@ -382,4 +383,233 @@ export function cleanupSession(session) {
             session.bobber = null;
         }
     }
+}
+
+/**
+ * Equips fish in fisherman's main hand.
+ * @param {Entity} villager 
+ * @param {string} fishItemId 
+ */
+export function equipFish(villager, fishItemId = "minecraft:cod") {
+    if (!villager || !villager.isValid()) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === fishItemId) return;
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(fishItemId, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${fishItemId}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Equips water/fish bucket in fisherman's main hand.
+ * @param {Entity} villager 
+ * @param {string} bucketItemId 
+ */
+export function equipBucket(villager, bucketItemId = FISHERMAN_CONFIG.TROPICAL_FISH_BUCKET) {
+    if (!villager || !villager.isValid()) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === bucketItemId) return;
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(bucketItemId, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${bucketItemId}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Finds a nearby stray cat to feed and befriend.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyStrayCat(dimension, location, radius = FISHERMAN_CONFIG.CAT_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+    let closest = null;
+    let closestDist = Infinity;
+
+    try {
+        const cats = dimension.getEntities({
+            type: "minecraft:cat",
+            location: location,
+            maxDistance: radius
+        });
+        for (const cat of cats) {
+            if (!cat || !cat.isValid()) continue;
+            if (cat.hasTag("rpc:befriended")) continue;
+
+            const d = distance(location, cat.location);
+            if (d < closestDist) {
+                closestDist = d;
+                closest = cat;
+            }
+        }
+    } catch {}
+    return closest;
+}
+
+/**
+ * Feeds fish to a stray cat, emitting hearts, purring sounds, and befriending it.
+ * @param {Entity} villager 
+ * @param {Entity} cat 
+ */
+export function performFeedAndTameCat(villager, cat) {
+    if (!villager || !villager.isValid() || !cat || !cat.isValid()) return false;
+    const dim = villager.dimension;
+    const cLoc = cat.location;
+
+    try {
+        const rot = getLookRotation(villager.location, cLoc);
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "random.eat", cLoc, { volume: 1.0, pitch: 1.3 });
+    playSoundSafe(dim, "mob.cat.purr", cLoc, { volume: 1.0, pitch: 1.0 });
+    playSoundSafe(dim, "mob.cat.meow", cLoc, { volume: 0.9, pitch: 1.1 });
+    spawnParticleSafe(dim, "minecraft:heart_particle", { x: cLoc.x, y: cLoc.y + 0.5, z: cLoc.z });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: cLoc.x, y: cLoc.y + 0.8, z: cLoc.z });
+
+    try {
+        cat.addTag("rpc:befriended");
+        cat.triggerEvent("minecraft:pet_tamed");
+    } catch {}
+
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
+    return true;
+}
+
+/**
+ * Finds a nearby Campfire workstation.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyCampfire(dimension, location, radius = FISHERMAN_CONFIG.CAMPFIRE_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+
+    for (let dx = -radius; dx <= radius; dx += 2) {
+        for (let dz = -radius; dz <= radius; dz += 2) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                try {
+                    const block = dimension.getBlock(pos);
+                    if (block && (block.typeId === FISHERMAN_CONFIG.CAMPFIRE_ID || block.typeId === FISHERMAN_CONFIG.SOUL_CAMPFIRE_ID)) {
+                        return { block, pos };
+                    }
+                } catch {}
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Cooks caught fish on the campfire and spawns cooked fish drops.
+ * @param {Entity} villager 
+ * @param {Vector3} campfirePos 
+ */
+export function performCookFish(villager, campfirePos) {
+    if (!villager || !villager.isValid() || !campfirePos) return false;
+    const dim = villager.dimension;
+
+    try {
+        const rot = getLookRotation(villager.location, { x: campfirePos.x + 0.5, y: campfirePos.y + 0.5, z: campfirePos.z + 0.5 });
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "random.fizz", campfirePos, { volume: 1.0, pitch: 1.1 });
+    playSoundSafe(dim, "fire.fire", campfirePos, { volume: 1.0, pitch: 1.0 });
+    spawnParticleSafe(dim, "minecraft:smoke_particle", { x: campfirePos.x + 0.5, y: campfirePos.y + 0.7, z: campfirePos.z + 0.5 });
+
+    // Drop cooked fish
+    const cookedItems = FISHERMAN_CONFIG.COOKED_FISH_ITEMS;
+    const chosen = cookedItems[Math.floor(Math.random() * cookedItems.length)];
+    try {
+        dim.spawnItem(new ItemStack(chosen, 1), {
+            x: campfirePos.x + 0.5,
+            y: campfirePos.y + 0.6,
+            z: campfirePos.z + 0.5
+        });
+    } catch {}
+
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
+    return true;
+}
+
+/**
+ * Scans for a nearby water pond block.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyPondWater(dimension, location, radius = 14) {
+    if (!dimension || !location) return null;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+
+    for (let dx = -radius; dx <= radius; dx += 2) {
+        for (let dz = -radius; dz <= radius; dz += 2) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                try {
+                    const block = dimension.getBlock(pos);
+                    if (block && block.typeId === "minecraft:water") {
+                        // Check if air above
+                        const above = dimension.getBlock({ x: pos.x, y: pos.y + 1, z: pos.z });
+                        if (above && above.isAir) {
+                            return { block, pos };
+                        }
+                    }
+                } catch {}
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Releases tropical fish into a pond.
+ * @param {Entity} villager 
+ * @param {Vector3} waterPos 
+ */
+export function performRestockFish(villager, waterPos) {
+    if (!villager || !villager.isValid() || !waterPos) return false;
+    const dim = villager.dimension;
+
+    try {
+        const rot = getLookRotation(villager.location, { x: waterPos.x + 0.5, y: waterPos.y + 0.5, z: waterPos.z + 0.5 });
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "bucket.empty_fish", waterPos, { volume: 1.0, pitch: 1.0 });
+    playSoundSafe(dim, "random.splash", waterPos, { volume: 1.0, pitch: 1.2 });
+    spawnParticleSafe(dim, "minecraft:water_splash_particle_manual", { x: waterPos.x + 0.5, y: waterPos.y + 0.8, z: waterPos.z + 0.5 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: waterPos.x + 0.5, y: waterPos.y + 1.2, z: waterPos.z + 0.5 });
+
+    try {
+        dim.spawnEntity("minecraft:tropical_fish", { x: waterPos.x + 0.5, y: waterPos.y + 0.2, z: waterPos.z + 0.5 });
+    } catch {}
+
+    return true;
 }

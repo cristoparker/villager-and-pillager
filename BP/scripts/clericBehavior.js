@@ -344,3 +344,192 @@ export function performOffensiveSplashPotion(villager, target) {
 
     return true;
 }
+
+/**
+ * Equips a Golden Apple in the Cleric's main hand during zombie curing.
+ * @param {Entity} villager 
+ */
+export function equipGoldenApple(villager) {
+    if (!villager || !villager.isValid()) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === CLERIC_CONFIG.GOLDEN_APPLE_ITEM_ID) return;
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(CLERIC_CONFIG.GOLDEN_APPLE_ITEM_ID, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${CLERIC_CONFIG.GOLDEN_APPLE_ITEM_ID}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Finds a nearby Zombie Villager in need of curing.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {Entity|null}
+ */
+export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CONFIG.ZOMBIE_VILLAGER_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+
+    const zombieVillagerTypes = [
+        "minecraft:zombie_villager_v2",
+        "minecraft:zombie_villager"
+    ];
+
+    for (const typeId of zombieVillagerTypes) {
+        try {
+            const entities = dimension.getEntities({
+                type: typeId,
+                location: location,
+                maxDistance: radius
+            });
+            for (const entity of entities) {
+                if (entity && entity.isValid()) {
+                    return entity;
+                }
+            }
+        } catch {}
+    }
+
+    return null;
+}
+
+/**
+ * Executes authentic weakness splash + golden apple feeding curing ritual on a zombie villager.
+ * @param {Entity} villager 
+ * @param {Entity} zombieVillager 
+ */
+export function performCureZombieVillager(villager, zombieVillager) {
+    if (!villager || !villager.isValid() || !zombieVillager || !zombieVillager.isValid()) return false;
+    const dim = villager.dimension;
+    const zLoc = zombieVillager.location;
+
+    try {
+        const rot = getLookRotation(villager.location, zLoc);
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    // Splash weakness potion
+    playSoundSafe(dim, "potion.splash", zLoc, { volume: 1.0, pitch: 1.0 });
+    playSoundSafe(dim, "random.glass", zLoc, { volume: 0.8, pitch: 1.2 });
+    spawnParticleSafe(dim, "minecraft:potion_splash_particle", { x: zLoc.x, y: zLoc.y + 1.0, z: zLoc.z });
+
+    try {
+        zombieVillager.addEffect("weakness", 600, { amplifier: 0, showParticles: true });
+    } catch {}
+
+    // Feed golden apple
+    playSoundSafe(dim, "random.eat", zLoc, { volume: 0.9, pitch: 1.0 });
+    playSoundSafe(dim, "random.potion.brew", zLoc, { volume: 1.0, pitch: 1.0 });
+    spawnParticleSafe(dim, "minecraft:totem_particle", { x: zLoc.x, y: zLoc.y + 1.2, z: zLoc.z });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: zLoc.x, y: zLoc.y + 1.0, z: zLoc.z });
+
+    // Trigger transformation into villager!
+    try {
+        zombieVillager.triggerEvent("minecraft:start_transforming");
+    } catch {}
+    try {
+        zombieVillager.runCommandAsync("event entity @s minecraft:start_transforming").catch(() => {});
+    } catch {}
+
+    equipPotion(villager);
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.1 });
+    return true;
+}
+
+/**
+ * Creates a defensive Holy Sanctuary protective aura repelling monsters and buffing allies.
+ * @param {Entity} villager 
+ */
+export function performHolySanctuary(villager) {
+    if (!villager || !villager.isValid()) return false;
+    const dim = villager.dimension;
+    const vLoc = villager.location;
+
+    try {
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "beacon.activate", vLoc, { volume: 1.0, pitch: 1.1 });
+    playSoundSafe(dim, "bell.hit", vLoc, { volume: 0.9, pitch: 1.2 });
+
+    const radius = CLERIC_CONFIG.SANCTUARY_RADIUS;
+
+    // Sanctuary visual aura ring
+    for (let angle = 0; angle < 360; angle += 30) {
+        const rad = (angle * Math.PI) / 180;
+        const px = vLoc.x + Math.cos(rad) * 4.0;
+        const pz = vLoc.z + Math.sin(rad) * 4.0;
+        spawnParticleSafe(dim, "minecraft:endrod", { x: px, y: vLoc.y + 0.5, z: pz });
+        spawnParticleSafe(dim, "minecraft:totem_particle", { x: px, y: vLoc.y + 0.8, z: pz });
+    }
+
+    // Buff nearby villagers and players inside sanctuary
+    try {
+        const allies = [
+            ...dim.getEntities({ type: "minecraft:villager_v2", location: vLoc, maxDistance: radius }),
+            ...dim.getEntities({ type: "minecraft:player", location: vLoc, maxDistance: radius })
+        ];
+
+        for (const ally of allies) {
+            if (ally && ally.isValid()) {
+                ally.addEffect("absorption", 240, { amplifier: 1, showParticles: true });
+                ally.addEffect("regeneration", 200, { amplifier: 1, showParticles: true });
+                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ally.location.x, y: ally.location.y + 1.0, z: ally.location.z });
+            }
+        }
+    } catch {}
+
+    // Repel nearby monsters away from sanctuary
+    for (const hostType of FLETCHER_CONFIG.HOSTILE_TYPES) {
+        try {
+            const hostiles = dim.getEntities({ type: hostType, location: vLoc, maxDistance: radius });
+            for (const mob of hostiles) {
+                if (mob && mob.isValid()) {
+                    const dx = mob.location.x - vLoc.x;
+                    const dz = mob.location.z - vLoc.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    mob.applyImpulse({ x: (dx / len) * 0.55, y: 0.25, z: (dz / len) * 0.55 });
+                    mob.addEffect("slowness", 100, { amplifier: 1, showParticles: true });
+                }
+            }
+        } catch {}
+    }
+
+    return true;
+}
+
+/**
+ * Crafts and brews potions at the brewing stand, dropping a finished potion.
+ * @param {Entity} villager 
+ * @param {{ block: Block, pos: Vector3 }} brewingStandInfo 
+ */
+export function performBrewPotions(villager, brewingStandInfo) {
+    if (!villager || !villager.isValid() || !brewingStandInfo) return false;
+    const dim = villager.dimension;
+    const pos = brewingStandInfo.pos;
+
+    performBrew(villager, brewingStandInfo);
+
+    // Drop brewed potion item
+    try {
+        const potionItem = Math.random() < 0.5
+            ? new ItemStack(CLERIC_CONFIG.POTION_ITEM_ID, 1)
+            : new ItemStack(CLERIC_CONFIG.SPLASH_POTION_ITEM_ID, 1);
+        dim.spawnItem(potionItem, {
+            x: pos.x + 0.5,
+            y: pos.y + 0.8,
+            z: pos.z + 0.5
+        });
+    } catch {}
+
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
+    return true;
+}

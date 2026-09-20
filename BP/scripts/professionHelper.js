@@ -24,7 +24,7 @@ export const PROFESSION_DATA = {
         variant: 2,
         family: "fisherman",
         defaultItem: "rpc:fishing_rod",
-        allowedItems: ["rpc:fishing_rod"],
+        allowedItems: ["rpc:fishing_rod", "minecraft:cod", "minecraft:salmon", "minecraft:cooked_cod", "minecraft:cooked_salmon", "minecraft:tropical_fish_bucket", "minecraft:water_bucket"],
         tag: "fisherman",
         rpcTag: "rpc:fisherman",
         displayName: "§b[Fisherman]"
@@ -34,7 +34,7 @@ export const PROFESSION_DATA = {
         variant: 3,
         family: "shepherd",
         defaultItem: "rpc:shears",
-        allowedItems: ["rpc:shears", "minecraft:shears"],
+        allowedItems: ["rpc:shears", "minecraft:shears", "minecraft:wheat", "minecraft:red_dye", "minecraft:blue_dye", "minecraft:yellow_dye", "minecraft:green_dye", "minecraft:purple_dye", "minecraft:orange_dye", "minecraft:pink_dye", "minecraft:cyan_dye", "minecraft:white_carpet"],
         tag: "shepherd",
         rpcTag: "rpc:shepherd",
         displayName: "§a[Shepherd]"
@@ -44,7 +44,7 @@ export const PROFESSION_DATA = {
         variant: 4,
         family: "fletcher",
         defaultItem: "minecraft:bow",
-        allowedItems: ["minecraft:bow", "minecraft:crossbow"],
+        allowedItems: ["minecraft:bow", "minecraft:crossbow", "minecraft:arrow"],
         tag: "fletcher",
         rpcTag: "rpc:fletcher",
         displayName: "§6[Fletcher]"
@@ -54,7 +54,7 @@ export const PROFESSION_DATA = {
         variant: 5,
         family: "librarian",
         defaultItem: "minecraft:enchanted_book",
-        allowedItems: ["minecraft:enchanted_book", "minecraft:book"],
+        allowedItems: ["minecraft:enchanted_book", "minecraft:book", "minecraft:paper", "minecraft:sugar_cane"],
         tag: "librarian",
         rpcTag: "rpc:librarian",
         displayName: "§9[Librarian]"
@@ -74,7 +74,7 @@ export const PROFESSION_DATA = {
         variant: 7,
         family: "cleric",
         defaultItem: "minecraft:splash_potion",
-        allowedItems: ["minecraft:splash_potion", "minecraft:potion"],
+        allowedItems: ["minecraft:splash_potion", "minecraft:potion", "minecraft:golden_apple"],
         tag: "cleric",
         rpcTag: "rpc:cleric",
         displayName: "§d[Cleric]"
@@ -84,7 +84,7 @@ export const PROFESSION_DATA = {
         variant: 8,
         family: "armorer",
         defaultItem: "minecraft:iron_ingot",
-        allowedItems: ["minecraft:iron_ingot"],
+        allowedItems: ["minecraft:iron_ingot", "minecraft:shield", "minecraft:iron_chestplate"],
         tag: "armorer",
         rpcTag: "rpc:armorer",
         displayName: "§7[Armorer]"
@@ -94,7 +94,7 @@ export const PROFESSION_DATA = {
         variant: 9,
         family: "weaponsmith",
         defaultItem: "minecraft:iron_sword",
-        allowedItems: ["minecraft:iron_sword"],
+        allowedItems: ["minecraft:iron_sword", "minecraft:iron_axe", "minecraft:goat_horn"],
         tag: "weaponsmith",
         rpcTag: "rpc:weaponsmith",
         displayName: "§4[Weaponsmith]"

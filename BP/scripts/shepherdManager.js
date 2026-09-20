@@ -7,7 +7,7 @@
 
 import { world } from "@minecraft/server";
 import { SHEPHERD_CONFIG } from "./config.js";
-import { distance } from "./utils.js";
+import { distance, getLookRotation } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 import { 
     equipShears, 
@@ -15,20 +15,37 @@ import {
     isShearableSheep, 
     findNearbyShearableSheep, 
     spawnStarterSheep, 
-    performShear 
+    performShear,
+    equipDye,
+    equipWheat,
+    findNearbyWhiteSheep,
+    performDyeSheep,
+    findNearbyShearedSheep,
+    performFeedWheat,
+    findNearbyPredators,
+    performScarePredator,
+    findNearbyLoom,
+    performLoomWeaving
 } from "./shepherdBehavior.js";
 
 export const ShepherdState = {
     IDLE: "IDLE",
     APPROACHING: "APPROACHING",
     SHEARING: "SHEARING",
+    APPROACHING_DYE: "APPROACHING_DYE",
+    DYEING: "DYEING",
+    APPROACHING_FEED: "APPROACHING_FEED",
+    FEEDING: "FEEDING",
+    SCARE_PREDATOR: "SCARE_PREDATOR",
+    APPROACHING_LOOM: "APPROACHING_LOOM",
+    WEAVING_LOOM: "WEAVING_LOOM",
     COOLDOWN: "COOLDOWN",
     SLEEPING: "SLEEPING"
 };
 
 export class ShepherdManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, targetSheep: Entity|null, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, targetSheep: Entity|null, targetDyeSheep: Entity|null, targetFeedSheep: Entity|null, targetPredator: Entity|null, targetLoom: any, chosenDye: any, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -180,16 +197,44 @@ export class ShepherdManager {
     updateShepherd(record, isNight) {
         const { villager } = record;
 
+        // Threat Check: Predators (wolves/foxes) threatening the flock
+        if (record.state !== ShepherdState.SLEEPING && record.state !== ShepherdState.SCARE_PREDATOR) {
+            const predator = findNearbyPredators(villager.dimension, villager.location, SHEPHERD_CONFIG.PREDATOR_SEARCH_RADIUS);
+            if (predator) {
+                record.targetPredator = predator;
+                record.state = ShepherdState.SCARE_PREDATOR;
+                record.timer = 15;
+                equipShears(villager);
+            }
+        }
+
         switch (record.state) {
             case ShepherdState.SLEEPING: {
-                // Wait for sunrise
                 if (!isNight) {
                     try {
                         villager.triggerEvent("minecraft:schedule_wander_villager");
                     } catch {}
                     equipShears(villager);
                     record.state = ShepherdState.IDLE;
-                    record.timer = 40; // Give time to wake up
+                    record.timer = 40;
+                }
+                break;
+            }
+
+            case ShepherdState.SCARE_PREDATOR: {
+                record.timer--;
+                if (!record.targetPredator || !record.targetPredator.isValid()) {
+                    record.state = ShepherdState.IDLE;
+                    record.targetPredator = null;
+                    record.timer = 10;
+                    break;
+                }
+
+                performScarePredator(villager, record.targetPredator);
+                if (record.timer <= 0) {
+                    record.targetPredator = null;
+                    record.state = ShepherdState.COOLDOWN;
+                    record.timer = 30;
                 }
                 break;
             }
@@ -197,12 +242,10 @@ export class ShepherdManager {
             case ShepherdState.IDLE: {
                 record.timer--;
                 if (record.timer <= 0) {
-                    record.timer = 20; // Scan every 1 second
-
-                    // Ensure shears are equipped
+                    record.timer = 25;
                     equipShears(villager);
 
-                    // Scan for closest shearable sheep
+                    // 1. Primary: Scan for closest shearable sheep
                     const sheep = findNearbyShearableSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
                     if (sheep) {
                         record.targetSheep = sheep;
@@ -212,10 +255,62 @@ export class ShepherdManager {
                             record.timer = SHEPHERD_CONFIG.SHEAR_ANIMATION_TICKS;
                         } else {
                             record.state = ShepherdState.APPROACHING;
-                            record.timer = 120; // Max 6 seconds pursuing this sheep
+                            record.timer = 120;
                             try {
                                 villager.triggerEvent("rpc:start_approach_sheep");
                             } catch {}
+                        }
+                        break;
+                    }
+
+                    // 2. Scan for sheared sheep that need wheat to regrow wool
+                    const shearedSheep = findNearbyShearedSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
+                    if (shearedSheep) {
+                        record.targetFeedSheep = shearedSheep;
+                        equipWheat(villager);
+                        const dist = distance(villager.location, shearedSheep.location);
+                        if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                            record.state = ShepherdState.FEEDING;
+                            record.timer = 25;
+                        } else {
+                            record.state = ShepherdState.APPROACHING_FEED;
+                            record.timer = 100;
+                        }
+                        break;
+                    }
+
+                    // 3. Scan for white sheep to dye into vibrant colors
+                    const whiteSheep = findNearbyWhiteSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
+                    if (whiteSheep && SHEPHERD_CONFIG.DYES && SHEPHERD_CONFIG.DYES.length > 0) {
+                        const dyeDef = SHEPHERD_CONFIG.DYES[Math.floor(Math.random() * SHEPHERD_CONFIG.DYES.length)];
+                        record.targetDyeSheep = whiteSheep;
+                        record.chosenDye = dyeDef;
+                        equipDye(villager, dyeDef.itemId);
+                        const dist = distance(villager.location, whiteSheep.location);
+                        if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                            record.state = ShepherdState.DYEING;
+                            record.timer = 25;
+                        } else {
+                            record.state = ShepherdState.APPROACHING_DYE;
+                            record.timer = 100;
+                        }
+                        break;
+                    }
+
+                    // 4. Secondary: Loom workstation interaction
+                    if (Math.random() < 0.35) {
+                        const loom = findNearbyLoom(villager.dimension, villager.location, SHEPHERD_CONFIG.LOOM_SEARCH_RADIUS);
+                        if (loom) {
+                            record.targetLoom = loom;
+                            const dist = distance(villager.location, loom.pos);
+                            if (dist <= SHEPHERD_CONFIG.LOOM_USE_DISTANCE) {
+                                record.state = ShepherdState.WEAVING_LOOM;
+                                record.timer = 30;
+                            } else {
+                                record.state = ShepherdState.APPROACHING_LOOM;
+                                record.timer = 90;
+                            }
+                            break;
                         }
                     }
                 }
@@ -224,49 +319,46 @@ export class ShepherdManager {
 
             case ShepherdState.APPROACHING: {
                 record.timer--;
-
-                // Target sheep became invalid or already sheared
                 if (!record.targetSheep || !record.targetSheep.isValid() || !isShearableSheep(record.targetSheep)) {
-                    try {
-                        villager.triggerEvent("rpc:stop_approach_sheep");
-                    } catch {}
+                    try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
                     record.state = ShepherdState.IDLE;
                     record.targetSheep = null;
                     record.timer = 10;
                     break;
                 }
 
-                // Check distance: shepherd moves using native follow_mob behavior
+                try {
+                    const sLoc = record.targetSheep.location;
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, sLoc);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = sLoc.x - villager.location.x;
+                    const dz = sLoc.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
                 const dist = distance(villager.location, record.targetSheep.location);
                 if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
-                    try {
-                        villager.triggerEvent("rpc:stop_approach_sheep");
-                    } catch {}
+                    try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
                     record.state = ShepherdState.SHEARING;
                     record.timer = SHEPHERD_CONFIG.SHEAR_ANIMATION_TICKS;
                 } else if (record.timer <= 0) {
-                    // Timeout approaching this sheep, pick new sheep or idle
-                    try {
-                        villager.triggerEvent("rpc:stop_approach_sheep");
-                    } catch {}
+                    try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
                     record.state = ShepherdState.IDLE;
                     record.targetSheep = null;
                     record.timer = 20;
-                    try {
-                        villager.triggerEvent("minecraft:schedule_wander_villager");
-                    } catch {}
                 }
                 break;
             }
 
             case ShepherdState.SHEARING: {
                 record.timer--;
-
                 if (record.timer <= 0) {
                     if (record.targetSheep && record.targetSheep.isValid() && isShearableSheep(record.targetSheep)) {
                         performShear(villager, record.targetSheep);
                     }
-
                     record.targetSheep = null;
                     record.state = ShepherdState.COOLDOWN;
                     record.timer = SHEPHERD_CONFIG.SHEAR_COOLDOWN_TICKS;
@@ -274,14 +366,161 @@ export class ShepherdManager {
                 break;
             }
 
+            case ShepherdState.APPROACHING_FEED: {
+                record.timer--;
+                if (!record.targetFeedSheep || !record.targetFeedSheep.isValid()) {
+                    record.state = ShepherdState.IDLE;
+                    record.targetFeedSheep = null;
+                    equipShears(villager);
+                    record.timer = 10;
+                    break;
+                }
+
+                if (record.timer % 20 === 0) equipWheat(villager);
+
+                try {
+                    const sLoc = record.targetFeedSheep.location;
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, sLoc);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = sLoc.x - villager.location.x;
+                    const dz = sLoc.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, record.targetFeedSheep.location);
+                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                    record.state = ShepherdState.FEEDING;
+                    record.timer = 25;
+                } else if (record.timer <= 0) {
+                    record.state = ShepherdState.IDLE;
+                    record.targetFeedSheep = null;
+                    equipShears(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case ShepherdState.FEEDING: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetFeedSheep && record.targetFeedSheep.isValid()) {
+                        performFeedWheat(villager, record.targetFeedSheep);
+                    }
+                    record.targetFeedSheep = null;
+                    equipShears(villager);
+                    record.state = ShepherdState.COOLDOWN;
+                    record.timer = 40;
+                }
+                break;
+            }
+
+            case ShepherdState.APPROACHING_DYE: {
+                record.timer--;
+                if (!record.targetDyeSheep || !record.targetDyeSheep.isValid() || !record.chosenDye) {
+                    record.state = ShepherdState.IDLE;
+                    record.targetDyeSheep = null;
+                    equipShears(villager);
+                    record.timer = 10;
+                    break;
+                }
+
+                if (record.timer % 20 === 0) equipDye(villager, record.chosenDye.itemId);
+
+                try {
+                    const sLoc = record.targetDyeSheep.location;
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, sLoc);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = sLoc.x - villager.location.x;
+                    const dz = sLoc.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, record.targetDyeSheep.location);
+                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                    record.state = ShepherdState.DYEING;
+                    record.timer = 25;
+                } else if (record.timer <= 0) {
+                    record.state = ShepherdState.IDLE;
+                    record.targetDyeSheep = null;
+                    equipShears(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case ShepherdState.DYEING: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetDyeSheep && record.targetDyeSheep.isValid() && record.chosenDye) {
+                        performDyeSheep(villager, record.targetDyeSheep, record.chosenDye);
+                    }
+                    record.targetDyeSheep = null;
+                    record.chosenDye = null;
+                    equipShears(villager);
+                    record.state = ShepherdState.COOLDOWN;
+                    record.timer = 40;
+                }
+                break;
+            }
+
+            case ShepherdState.APPROACHING_LOOM: {
+                record.timer--;
+                if (!record.targetLoom) {
+                    record.state = ShepherdState.IDLE;
+                    record.timer = 10;
+                    break;
+                }
+
+                try {
+                    const lPos = { x: record.targetLoom.pos.x + 0.5, y: record.targetLoom.pos.y, z: record.targetLoom.pos.z + 0.5 };
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, lPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = lPos.x - villager.location.x;
+                    const dz = lPos.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, record.targetLoom.pos);
+                if (dist <= SHEPHERD_CONFIG.LOOM_USE_DISTANCE) {
+                    record.state = ShepherdState.WEAVING_LOOM;
+                    record.timer = 30;
+                } else if (record.timer <= 0) {
+                    record.state = ShepherdState.IDLE;
+                    record.targetLoom = null;
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case ShepherdState.WEAVING_LOOM: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetLoom) {
+                        performLoomWeaving(villager, record.targetLoom.pos);
+                    }
+                    record.targetLoom = null;
+                    equipShears(villager);
+                    record.state = ShepherdState.COOLDOWN;
+                    record.timer = 50;
+                }
+                break;
+            }
+
             case ShepherdState.COOLDOWN: {
                 record.timer--;
                 if (record.timer <= 0) {
+                    equipShears(villager);
                     record.state = ShepherdState.IDLE;
-                    record.timer = 10;
-                    try {
-                        villager.triggerEvent("minecraft:schedule_wander_villager");
-                    } catch {}
+                    record.timer = 15;
                 }
                 break;
             }

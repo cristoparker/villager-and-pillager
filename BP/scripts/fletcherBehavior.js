@@ -56,6 +56,28 @@ export function unequipRangedWeapon(villager) {
 }
 
 /**
+ * Equips an arrow in the Fletcher's main hand during fletching table crafting.
+ * @param {Entity} villager 
+ */
+export function equipArrow(villager) {
+    if (!villager || !villager.isValid()) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === FLETCHER_CONFIG.ARROW_ITEM_ID) return;
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(FLETCHER_CONFIG.ARROW_ITEM_ID, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${FLETCHER_CONFIG.ARROW_ITEM_ID}`).catch(() => {});
+    } catch {}
+}
+
+/**
  * Checks if an entity is currently holding a Crossbow.
  * @param {Entity} villager 
  * @returns {boolean}
@@ -383,24 +405,126 @@ export function shootArrowAtMonster(villager, monster, isCrossbow = false) {
         console.warn(`[Fletcher] Error spawning combat arrow: ${e}`);
     }
 
-    // 5. Sound effects
+    // 5. Sound and Fire effects
+    const hasFireNear = isNearFireSource(dim, vLoc, FLETCHER_CONFIG.FIRE_SEARCH_RADIUS);
+    if (hasFireNear) {
+        spawnParticleSafe(dim, "minecraft:flame", spawnPos);
+        try { monster.setOnFire(4); } catch {}
+    }
+
     if (isCrossbow) {
         playSoundSafe(dim, "crossbow.shoot", spawnPos, { volume: 1.0, pitch: 1.0 });
     } else {
         playSoundSafe(dim, "random.bow", spawnPos, { volume: 1.0, pitch: 1.0 });
     }
 
-    // 6. Direct damage application as reliable hit guarantee
+    // 6. Direct damage and tactical debuffs
     const damage = isCrossbow ? 9 : 6;
     try {
         monster.applyDamage(damage, { damagingEntity: villager });
         playSoundSafe(dim, "damage.hit", mLoc, { volume: 0.8, pitch: 1.1 });
         spawnParticleSafe(dim, "minecraft:crit", { x: mLoc.x, y: mLoc.y + 1.0, z: mLoc.z });
+
+        // Tactical arrow effects based on monster type
+        if (monster.typeId.includes("spider") || monster.typeId.includes("creeper")) {
+            monster.addEffect("slowness", 100, { amplifier: 1, showParticles: true });
+        } else if (monster.typeId.includes("pillager") || monster.typeId.includes("vindicator") || monster.typeId.includes("ravager")) {
+            monster.addEffect("poison", 80, { amplifier: 0, showParticles: true });
+        }
     } catch {
         try {
             villager.runCommandAsync(`damage @e[type=!villager,type=!villager_v2,type=!player,c=1,r=20] ${damage} projectile entity @s`).catch(() => {});
         } catch {}
     }
 
+    return true;
+}
+
+/**
+ * Checks if a fire or torch block is nearby.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function isNearFireSource(dimension, location, radius = 4) {
+    if (!dimension || !location) return false;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+
+    for (let dx = -radius; dx <= radius; dx++) {
+        for (let dz = -radius; dz <= radius; dz++) {
+            for (let dy = -1; dy <= 2; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                try {
+                    const block = dimension.getBlock(pos);
+                    if (block && (block.typeId.includes("fire") || block.typeId.includes("torch") || block.typeId.includes("campfire"))) {
+                        return true;
+                    }
+                } catch {}
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Scans for a nearby Fletching Table workstation.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyFletchingTable(dimension, location, radius = FLETCHER_CONFIG.FLETCHING_TABLE_RADIUS) {
+    if (!dimension || !location) return null;
+    const ox = Math.floor(location.x);
+    const oy = Math.floor(location.y);
+    const oz = Math.floor(location.z);
+
+    for (let dx = -radius; dx <= radius; dx += 2) {
+        for (let dz = -radius; dz <= radius; dz += 2) {
+            for (let dy = -2; dy <= 2; dy++) {
+                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                try {
+                    const block = dimension.getBlock(pos);
+                    if (block && block.typeId === FLETCHER_CONFIG.FLETCHING_TABLE_ID) {
+                        return { block, pos };
+                    }
+                } catch {}
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Crafts special arrows at the fletching table.
+ * @param {Entity} villager 
+ * @param {Vector3} tablePos 
+ */
+export function performCraftTippedArrows(villager, tablePos) {
+    if (!villager || !villager.isValid() || !tablePos) return false;
+    const dim = villager.dimension;
+
+    try {
+        const rot = getLookRotation(villager.location, { x: tablePos.x + 0.5, y: tablePos.y + 0.5, z: tablePos.z + 0.5 });
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "item.axe.strip", tablePos, { volume: 0.9, pitch: 1.1 });
+    playSoundSafe(dim, "random.pop", tablePos, { volume: 0.9, pitch: 1.3 });
+    spawnParticleSafe(dim, "minecraft:crit", { x: tablePos.x + 0.5, y: tablePos.y + 0.8, z: tablePos.z + 0.5 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: tablePos.x + 0.5, y: tablePos.y + 1.2, z: tablePos.z + 0.5 });
+
+    // Drop arrow reward
+    try {
+        dim.spawnItem(new ItemStack(FLETCHER_CONFIG.ARROW_ITEM_ID, 2), {
+            x: tablePos.x + 0.5,
+            y: tablePos.y + 0.7,
+            z: tablePos.z + 0.5
+        });
+    } catch {}
+
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     return true;
 }

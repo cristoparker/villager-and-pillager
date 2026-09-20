@@ -52,18 +52,27 @@ export const LOOT_TABLE = [
 ];
 
 export const SHEPHERD_CONFIG = {
-    // Search radius to look for sheep (blocks)
     SHEEP_SEARCH_RADIUS: 24,
-    // Distance from sheep to perform shearing
     SHEAR_DISTANCE: 2.5,
-    // Cooldown ticks after shearing before finding another sheep (3 seconds)
     SHEAR_COOLDOWN_TICKS: 60,
-    // Interaction duration in ticks (arm raise and snip animation)
     SHEAR_ANIMATION_TICKS: 22,
-    // Preferred item IDs to equip in hand
     SHEARS_ITEM_ID: "rpc:shears",
     VANILLA_SHEARS_ITEM_ID: "minecraft:shears",
-    // Color to wool block item ID mapping (0-15 matching Bedrock color component)
+    WHEAT_ITEM_ID: "minecraft:wheat",
+    LOOM_ID: "minecraft:loom",
+    LOOM_SEARCH_RADIUS: 18,
+    LOOM_USE_DISTANCE: 2.2,
+    PREDATOR_SEARCH_RADIUS: 12,
+    DYES: [
+        { itemId: "minecraft:red_dye", colorIndex: 14, event: "minecraft:set_color_red" },
+        { itemId: "minecraft:blue_dye", colorIndex: 11, event: "minecraft:set_color_blue" },
+        { itemId: "minecraft:yellow_dye", colorIndex: 4, event: "minecraft:set_color_yellow" },
+        { itemId: "minecraft:green_dye", colorIndex: 13, event: "minecraft:set_color_green" },
+        { itemId: "minecraft:purple_dye", colorIndex: 10, event: "minecraft:set_color_purple" },
+        { itemId: "minecraft:orange_dye", colorIndex: 1, event: "minecraft:set_color_orange" },
+        { itemId: "minecraft:pink_dye", colorIndex: 6, event: "minecraft:set_color_pink" },
+        { itemId: "minecraft:cyan_dye", colorIndex: 9, event: "minecraft:set_color_cyan" }
+    ],
     WOOL_MAP: [
         "minecraft:white_wool",       // 0
         "minecraft:orange_wool",      // 1
@@ -85,43 +94,45 @@ export const SHEPHERD_CONFIG = {
 };
 
 export const BUTCHER_CONFIG = {
-    // Search radius to look for cows and pigs (blocks)
     ANIMAL_SEARCH_RADIUS: 24,
-    // Search radius for Smoker block workstation (blocks)
     SMOKER_SEARCH_RADIUS: 32,
-    // Distance to slaughter animal
     ATTACK_DISTANCE: 2.2,
-    // Distance to smoker to load meat and fuel
     SMOKER_LOAD_DISTANCE: 2.5,
-    // Cooldown ticks after slaughter before hunting again (3 seconds)
     HUNT_COOLDOWN_TICKS: 60,
-    // Slaughter swing duration in ticks
     SLAUGHTER_ANIMATION_TICKS: 22,
-    // Items
     CLEAVER_ITEM_ID: "rpc:cleaver",
     VANILLA_AXE_ITEM_ID: "minecraft:iron_axe",
     COAL_ITEM_ID: "minecraft:coal",
     COAL_LOAD_AMOUNT: 2
 };
 
+export const FISHERMAN_CONFIG = {
+    RAW_FISH_ITEMS: ["minecraft:cod", "minecraft:salmon"],
+    COOKED_FISH_ITEMS: ["minecraft:cooked_cod", "minecraft:cooked_salmon"],
+    TROPICAL_FISH_BUCKET: "minecraft:tropical_fish_bucket",
+    WATER_BUCKET: "minecraft:water_bucket",
+    CAMPFIRE_ID: "minecraft:campfire",
+    SOUL_CAMPFIRE_ID: "minecraft:soul_campfire",
+    CAMPFIRE_SEARCH_RADIUS: 18,
+    CAT_SEARCH_RADIUS: 14,
+    CAT_FEED_DISTANCE: 2.5
+};
+
 export const FLETCHER_CONFIG = {
-    // Search radius to look for hostile monsters (blocks)
     MONSTER_SEARCH_RADIUS: 18,
-    // Search radius for Target block workstation / practice (blocks)
     TARGET_BLOCK_SEARCH_RADIUS: 24,
-    // Distance from target block to practice shooting
     PRACTICE_DISTANCE_MIN: 5.0,
     PRACTICE_DISTANCE_MAX: 9.0,
-    // Combat parameters
-    ATTACK_INTERVAL_TICKS: 26,       // ~1.3s between bow/crossbow shots in combat
-    PRACTICE_INTERVAL_TICKS: 75,     // ~3.75s between target practice shots
-    AIM_DURATION_TICKS: 18,          // Ticks aiming with raised arms before releasing arrow
+    ATTACK_INTERVAL_TICKS: 26,
+    PRACTICE_INTERVAL_TICKS: 75,
+    AIM_DURATION_TICKS: 18,
     ARROW_SPEED: 2.2,
-    // Items
     BOW_ITEM_ID: "minecraft:bow",
     CROSSBOW_ITEM_ID: "minecraft:crossbow",
     ARROW_ITEM_ID: "minecraft:arrow",
-    // Hostile monster entity type identifiers
+    FLETCHING_TABLE_ID: "minecraft:fletching_table",
+    FLETCHING_TABLE_RADIUS: 16,
+    FIRE_SEARCH_RADIUS: 4,
     HOSTILE_TYPES: [
         "minecraft:zombie",
         "minecraft:zombie_villager",
@@ -145,7 +156,6 @@ export const FLETCHER_CONFIG = {
         "minecraft:piglin_brute",
         "minecraft:zoglin"
     ],
-    // Hostile families fallback
     HOSTILE_FAMILIES: [
         "monster",
         "undead",
@@ -230,40 +240,60 @@ export const FARMER_CONFIG = {
 
 export const WEAPONSMITH_CONFIG = {
     SWORD_ITEM_ID: "minecraft:iron_sword",
+    AXE_ITEM_ID: "minecraft:iron_axe",
+    HORN_ITEM_ID: "minecraft:goat_horn",
     GRINDSTONE_ID: "minecraft:grindstone",
     GRINDSTONE_SEARCH_RADIUS: 18,
     GRINDSTONE_USE_DISTANCE: 2.2,
     SHARPEN_ANIMATION_TICKS: 30,
     COOLDOWN_TICKS: 80,
-    MONSTER_SEARCH_RADIUS: 16
+    MONSTER_SEARCH_RADIUS: 16,
+    BUFF_SEARCH_RADIUS: 12,
+    BUFF_COOLDOWN_TICKS: 200,
+    ATTACK_DISTANCE: 2.5,
+    ATTACK_DAMAGE: 7
 };
 
 export const CLERIC_CONFIG = {
     SPLASH_POTION_ITEM_ID: "minecraft:splash_potion",
     POTION_ITEM_ID: "minecraft:potion",
+    GOLDEN_APPLE_ITEM_ID: "minecraft:golden_apple",
     ALLIED_SEARCH_RADIUS: 14,
     HEAL_DISTANCE: 8.0,
     HEAL_COOLDOWN_TICKS: 50,
     HEAL_ANIMATION_TICKS: 22,
     BREWING_STAND_ID: "minecraft:brewing_stand",
+    BREWING_SEARCH_RADIUS: 16,
     RAID_SEARCH_RADIUS: 20,
     OFFENSIVE_SEARCH_RADIUS: 14,
     OFFENSIVE_THROW_DISTANCE: 12,
     SELF_REGEN_HEALTH_THRESHOLD: 0.8,
-    POTION_COOLDOWN_TICKS: 40
+    POTION_COOLDOWN_TICKS: 40,
+    ZOMBIE_VILLAGER_SEARCH_RADIUS: 12,
+    SANCTUARY_RADIUS: 8
 };
 
 export const ARMORER_CONFIG = {
     INGOT_ITEM_ID: "minecraft:iron_ingot",
+    SHIELD_ITEM_ID: "minecraft:shield",
+    CHESTPLATE_ITEM_ID: "minecraft:iron_chestplate",
     GOLEM_SEARCH_RADIUS: 20,
     REPAIR_DISTANCE: 3.0,
     REPAIR_COOLDOWN_TICKS: 60,
     REPAIR_ANIMATION_TICKS: 24,
-    BLAST_FURNACE_ID: "minecraft:blast_furnace"
+    BLAST_FURNACE_ID: "minecraft:blast_furnace",
+    BLAST_FURNACE_SEARCH_RADIUS: 18,
+    ANVIL_BLOCK_IDS: ["minecraft:anvil", "minecraft:chipped_anvil", "minecraft:damaged_anvil"],
+    ANVIL_SEARCH_RADIUS: 16,
+    BUFF_SEARCH_RADIUS: 10,
+    BUFF_COOLDOWN_TICKS: 300,
+    GOLEM_SUMMON_RADIUS: 32
 };
 
 export const LIBRARIAN_CONFIG = {
     BOOK_ITEM_ID: "minecraft:enchanted_book",
+    REGULAR_BOOK_ITEM_ID: "minecraft:book",
+    PAPER_ITEM_ID: "minecraft:paper",
     LECTERN_ID: "minecraft:lectern",
     LECTERN_SEARCH_RADIUS: 18,
     LECTERN_STUDY_DISTANCE: 2.2,
@@ -274,7 +304,8 @@ export const LIBRARIAN_CONFIG = {
     SUGARCANE_BLOCK_ID: "minecraft:reeds",
     SUGARCANE_ITEM_ID: "minecraft:sugar_cane",
     HARVEST_DISTANCE: 2.5,
-    PLANT_DISTANCE: 2.5
+    PLANT_DISTANCE: 2.5,
+    DISPEL_SEARCH_RADIUS: 12
 };
 
 

@@ -361,3 +361,168 @@ export function performHarvestSugarcane(villager, sugarcaneInfo) {
 
     return true;
 }
+
+/**
+ * Equips paper in the librarian's main hand during book crafting.
+ * @param {Entity} villager 
+ */
+export function equipPaper(villager) {
+    if (!villager || !villager.isValid()) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === LIBRARIAN_CONFIG.PAPER_ITEM_ID) return;
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(LIBRARIAN_CONFIG.PAPER_ITEM_ID, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${LIBRARIAN_CONFIG.PAPER_ITEM_ID}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Crafts paper into books at the lectern workstation.
+ * @param {Entity} villager 
+ * @param {Vector3} lecternPos 
+ */
+export function performCraftBooks(villager, lecternPos) {
+    if (!villager || !villager.isValid() || !lecternPos) return false;
+    const dim = villager.dimension;
+
+    try {
+        const rot = getLookRotation(villager.location, { x: lecternPos.x + 0.5, y: lecternPos.y + 0.5, z: lecternPos.z + 0.5 });
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "item.book.page_turn", lecternPos, { volume: 0.9, pitch: 1.1 });
+    playSoundSafe(dim, "random.pop", lecternPos, { volume: 0.9, pitch: 1.3 });
+    spawnParticleSafe(dim, "minecraft:enchanting_table_particle", { x: lecternPos.x + 0.5, y: lecternPos.y + 1.2, z: lecternPos.z + 0.5 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: lecternPos.x + 0.5, y: lecternPos.y + 1.0, z: lecternPos.z + 0.5 });
+
+    // 50% chance to drop paper, 50% chance to bind a regular book
+    try {
+        const dropItem = Math.random() < 0.5 
+            ? new ItemStack(LIBRARIAN_CONFIG.PAPER_ITEM_ID, 2)
+            : new ItemStack(LIBRARIAN_CONFIG.REGULAR_BOOK_ITEM_ID, 1);
+        dim.spawnItem(dropItem, {
+            x: lecternPos.x + 0.5,
+            y: lecternPos.y + 0.8,
+            z: lecternPos.z + 0.5
+        });
+    } catch {}
+
+    equipBook(villager);
+    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
+    return true;
+}
+
+/**
+ * Channels an enchanting blessing from the lectern, buffing allies with Haste & Regeneration.
+ * @param {Entity} villager 
+ * @param {Vector3} lecternPos 
+ */
+export function performEnchantingBlessing(villager, lecternPos) {
+    if (!villager || !villager.isValid() || !lecternPos) return false;
+    const dim = villager.dimension;
+
+    try {
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    playSoundSafe(dim, "beacon.power", lecternPos, { volume: 0.9, pitch: 1.3 });
+    playSoundSafe(dim, "random.orb", lecternPos, { volume: 0.9, pitch: 1.1 });
+    spawnParticleSafe(dim, "minecraft:enchanting_table_particle", { x: lecternPos.x + 0.5, y: lecternPos.y + 1.5, z: lecternPos.z + 0.5 });
+
+    // Buff nearby players and villagers
+    try {
+        const allies = [
+            ...dim.getEntities({ type: "minecraft:villager_v2", location: lecternPos, maxDistance: LIBRARIAN_CONFIG.INSPIRATION_RADIUS }),
+            ...dim.getEntities({ type: "minecraft:player", location: lecternPos, maxDistance: LIBRARIAN_CONFIG.INSPIRATION_RADIUS })
+        ];
+
+        for (const ally of allies) {
+            if (ally && ally.isValid()) {
+                ally.addEffect("haste", 300, { amplifier: 1, showParticles: true });
+                ally.addEffect("regeneration", 160, { amplifier: 0, showParticles: true });
+                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ally.location.x, y: ally.location.y + 1.0, z: ally.location.z });
+            }
+        }
+    } catch {}
+
+    return true;
+}
+
+/**
+ * Finds a nearby allied villager or player afflicted with harmful negative status effects.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ */
+export function findNearbyAfflictedAlly(dimension, location, radius = LIBRARIAN_CONFIG.DISPEL_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+
+    const candidates = [];
+    try {
+        candidates.push(...dimension.getEntities({ type: "minecraft:villager_v2", location, maxDistance: radius }));
+    } catch {}
+    try {
+        candidates.push(...dimension.getEntities({ type: "minecraft:player", location, maxDistance: radius }));
+    } catch {}
+
+    const negativeEffects = ["poison", "fatal_poison", "slowness", "weakness", "wither", "hunger", "nausea", "blindness", "mining_fatigue"];
+
+    for (const ally of candidates) {
+        if (!ally || !ally.isValid()) continue;
+        for (const eff of negativeEffects) {
+            try {
+                if (ally.getEffect(eff)) {
+                    return ally;
+                }
+            } catch {}
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Dispels negative curses and harmful debuffs from an ally.
+ * @param {Entity} villager 
+ * @param {Entity} ally 
+ */
+export function performDispelCurse(villager, ally) {
+    if (!villager || !villager.isValid() || !ally || !ally.isValid()) return false;
+    const dim = villager.dimension;
+
+    try {
+        const rot = getLookRotation(villager.location, ally.location);
+        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    const negativeEffects = ["poison", "fatal_poison", "slowness", "weakness", "wither", "hunger", "nausea", "blindness", "mining_fatigue"];
+    for (const eff of negativeEffects) {
+        try {
+            if (ally.getEffect(eff)) {
+                ally.removeEffect(eff);
+            }
+        } catch {}
+    }
+
+    // Grant temporary absorption as a ward against future curses
+    try {
+        ally.addEffect("absorption", 200, { amplifier: 0, showParticles: true });
+    } catch {}
+
+    playSoundSafe(dim, "chime.amethyst_block", ally.location, { volume: 1.0, pitch: 1.2 });
+    playSoundSafe(dim, "random.orb", ally.location, { volume: 0.8, pitch: 1.3 });
+    spawnParticleSafe(dim, "minecraft:totem_particle", { x: ally.location.x, y: ally.location.y + 1.0, z: ally.location.z });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: ally.location.x, y: ally.location.y + 1.2, z: ally.location.z });
+
+    return true;
+}

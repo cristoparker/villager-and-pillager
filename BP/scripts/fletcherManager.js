@@ -7,14 +7,17 @@
 
 import { world } from "@minecraft/server";
 import { FLETCHER_CONFIG } from "./config.js";
-import { distance, playSoundSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 import { 
     equipRangedWeapon, 
     unequipRangedWeapon, 
+    equipArrow,
     isHoldingCrossbow, 
     findNearbyMonsters, 
     findNearbyTargetBlock, 
+    findNearbyFletchingTable,
+    performCraftTippedArrows,
     findShootingSpot, 
     shootArrowAtBlock,
     shootArrowAtMonster 
@@ -25,6 +28,8 @@ export const FletcherState = {
     COMBAT: "COMBAT",
     APPROACHING_TARGET: "APPROACHING_TARGET",
     PRACTICE_AIMING: "PRACTICE_AIMING",
+    APPROACHING_FLETCHING_TABLE: "APPROACHING_FLETCHING_TABLE",
+    CRAFTING_ARROWS: "CRAFTING_ARROWS",
     COOLDOWN: "COOLDOWN",
     SLEEPING: "SLEEPING"
 };
@@ -230,7 +235,25 @@ export class FletcherManager {
                         break;
                     }
 
-                    // 2. PRIORITY 2: Check for nearby Target block in free time
+                    // 2. PRIORITY 2: Check for nearby Fletching Table to craft tipped arrows (45% chance)
+                    if (Math.random() < 0.45) {
+                        const table = findNearbyFletchingTable(villager.dimension, villager.location, FLETCHER_CONFIG.FLETCHING_TABLE_RADIUS);
+                        if (table) {
+                            record.fletchingTable = table;
+                            const d = distance(villager.location, table.pos);
+                            if (d <= 2.2) {
+                                record.state = FletcherState.CRAFTING_ARROWS;
+                                record.timer = 50;
+                                equipArrow(villager);
+                            } else {
+                                record.state = FletcherState.APPROACHING_FLETCHING_TABLE;
+                                record.timer = 120;
+                            }
+                            break;
+                        }
+                    }
+
+                    // 3. PRIORITY 3: Check for nearby Target block in free time
                     const targetBlock = findNearbyTargetBlock(villager.dimension, villager.location, FLETCHER_CONFIG.TARGET_BLOCK_SEARCH_RADIUS);
                     if (targetBlock) {
                         record.targetBlock = targetBlock;
@@ -338,8 +361,10 @@ export class FletcherManager {
                 const dest = record.shootingSpot || record.targetBlock;
                 if (dest) {
                     try {
-                        const rot = getLookRotation(villager.location, dest);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        if (record.timer % 10 === 0) {
+                            const rot = getLookRotation(villager.location, dest);
+                            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        }
                         const dx = dest.x - villager.location.x;
                         const dz = dest.z - villager.location.z;
                         const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
@@ -354,6 +379,79 @@ export class FletcherManager {
                     } catch {}
                     record.state = FletcherState.PRACTICE_AIMING;
                     record.timer = FLETCHER_CONFIG.AIM_DURATION_TICKS;
+                }
+                break;
+            }
+
+            case FletcherState.APPROACHING_FLETCHING_TABLE: {
+                // Immediate monster interruption check
+                const hostile = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
+                if (hostile) {
+                    equipRangedWeapon(villager, record.preferredWeapon);
+                    record.targetMonster = hostile;
+                    record.state = FletcherState.COMBAT;
+                    record.timer = 5;
+                    break;
+                }
+
+                record.timer--;
+                if (!record.fletchingTable || record.timer <= 0) {
+                    record.state = FletcherState.IDLE;
+                    record.timer = 20;
+                    break;
+                }
+
+                const tablePos = record.fletchingTable.pos;
+                const d = distance(villager.location, tablePos);
+                if (d <= 2.2) {
+                    record.state = FletcherState.CRAFTING_ARROWS;
+                    record.timer = 50;
+                    equipArrow(villager);
+                    break;
+                }
+
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, tablePos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = tablePos.x + 0.5 - villager.location.x;
+                    const dz = tablePos.z + 0.5 - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+                break;
+            }
+
+            case FletcherState.CRAFTING_ARROWS: {
+                // Immediate monster interruption check
+                const hostile = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
+                if (hostile) {
+                    equipRangedWeapon(villager, record.preferredWeapon);
+                    record.targetMonster = hostile;
+                    record.state = FletcherState.COMBAT;
+                    record.timer = 5;
+                    break;
+                }
+
+                record.timer--;
+                const tablePos = record.fletchingTable?.pos;
+
+                if (tablePos && record.timer % 15 === 0) {
+                    playSoundSafe(villager.dimension, "item.axe.strip", tablePos, { volume: 0.6, pitch: 1.2 });
+                    try {
+                        villager.playAnimation("animation.villager.raise_arms");
+                    } catch {}
+                }
+
+                if (record.timer <= 0) {
+                    if (tablePos) {
+                        performCraftTippedArrows(villager, tablePos);
+                    }
+                    equipRangedWeapon(villager, record.preferredWeapon);
+                    record.fletchingTable = null;
+                    record.state = FletcherState.COOLDOWN;
+                    record.timer = 40;
                 }
                 break;
             }
