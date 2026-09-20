@@ -308,4 +308,29 @@ export const LIBRARIAN_CONFIG = {
     DISPEL_SEARCH_RADIUS: 12
 };
 
+export const EXPANSION_CONFIG = {
+    ITEM_SEARCH_RADIUS: 10,
+    ITEM_PICKUP_DISTANCE: 1.6,
+    CHEST_SEARCH_RADIUS: 16,
+    CHEST_DEPOSIT_DISTANCE: 2.2,
+    BED_SEARCH_RADIUS: 16,
+    BED_COOLDOWN_TICKS: 2400,
+    WORKBENCH_COOLDOWN_TICKS: 3600,
+    MAX_LOCAL_BEDS_SURPLUS: 2,
+    CHEST_BLOCK_IDS: ["minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel"],
+    BED_BLOCK_ID: "minecraft:bed",
+    WORKBENCH_BLOCK_IDS: [
+        "minecraft:composter",
+        "minecraft:smoker",
+        "minecraft:loom",
+        "minecraft:lectern",
+        "minecraft:blast_furnace",
+        "minecraft:grindstone",
+        "minecraft:fletching_table",
+        "minecraft:brewing_stand",
+        "minecraft:barrel"
+    ]
+};
+
+
 

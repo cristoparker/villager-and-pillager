@@ -7,6 +7,7 @@
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { SHEPHERD_CONFIG } from "./config.js";
 import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
  * Equips shears in the villager's main hand.
@@ -213,11 +214,14 @@ export function performShear(villager, sheep) {
 
     // 6. Spawn dropped wool item at sheep
     try {
-        dim.spawnItem(new ItemStack(woolItemId, woolCount), {
+        const droppedWool = dim.spawnItem(new ItemStack(woolItemId, woolCount), {
             x: sheepLoc.x,
             y: sheepLoc.y + 0.5,
             z: sheepLoc.z
         });
+        if (droppedWool) {
+            notifyDroppedItem(villager, droppedWool);
+        }
     } catch {}
 
     // 7. Spurt wool particles
@@ -544,11 +548,14 @@ export function performLoomWeaving(villager, loomPos) {
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: loomPos.x + 0.5, y: loomPos.y + 1.2, z: loomPos.z + 0.5 });
 
     try {
-        dim.spawnItem(new ItemStack("minecraft:white_carpet", 1), {
+        const droppedCarpet = dim.spawnItem(new ItemStack("minecraft:white_carpet", 1), {
             x: loomPos.x + 0.5,
             y: loomPos.y + 0.6,
             z: loomPos.z + 0.5
         });
+        if (droppedCarpet) {
+            notifyDroppedItem(villager, droppedCarpet);
+        }
     } catch {}
 
     return true;

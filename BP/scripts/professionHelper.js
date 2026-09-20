@@ -289,9 +289,11 @@ export function synchronizeVillagerOccupation(villager, managers = {}) {
         return;
     }
 
+    const UNIVERSAL_ALLOWED_ITEMS = ["minecraft:chest", "minecraft:barrel", "minecraft:bed"];
+
     // Case 2: Holding an item or tag from a DIFFERENT profession
     const hasStaleTag = ALL_RPC_TAGS.some(tag => tag !== expected.rpcTag && villager.hasTag(tag));
-    const hasStaleItem = heldTypeId && !expected.allowedItems.includes(heldTypeId);
+    const hasStaleItem = heldTypeId && !expected.allowedItems.includes(heldTypeId) && !UNIVERSAL_ALLOWED_ITEMS.includes(heldTypeId);
 
     if (hasStaleTag || hasStaleItem) {
         // Clear conflicting previous profession data

@@ -23,6 +23,7 @@ import { WeaponsmithManager } from "./weaponsmithManager.js";
 import { ClericManager } from "./clericManager.js";
 import { ArmorerManager } from "./armorerManager.js";
 import { LibrarianManager } from "./librarianManager.js";
+import { VillageExpansionManager, setGlobalExpansionManager } from "./villageExpansionManager.js";
 import { summonAllVillagers } from "./summonHelper.js";
 import { synchronizeVillagerOccupation, clearAllProfessions, getVillagerProfession } from "./professionHelper.js";
 
@@ -35,6 +36,8 @@ const weaponsmithManager = new WeaponsmithManager();
 const clericManager = new ClericManager();
 const armorerManager = new ArmorerManager();
 const librarianManager = new LibrarianManager();
+const villageExpansionManager = new VillageExpansionManager();
+setGlobalExpansionManager(villageExpansionManager);
 
 export const allManagers = {
     fishermanManager,
@@ -45,7 +48,8 @@ export const allManagers = {
     weaponsmithManager,
     clericManager,
     armorerManager,
-    librarianManager
+    librarianManager,
+    villageExpansionManager
 };
 
 // Central game tick loop
@@ -59,6 +63,7 @@ system.runInterval(() => {
     try { clericManager.update(); } catch (err) { console.error(`[Villager Addon] Error in cleric loop: ${err}`); }
     try { armorerManager.update(); } catch (err) { console.error(`[Villager Addon] Error in armorer loop: ${err}`); }
     try { librarianManager.update(); } catch (err) { console.error(`[Villager Addon] Error in librarian loop: ${err}`); }
+    try { villageExpansionManager.update(); } catch (err) { console.error(`[Villager Addon] Error in expansion loop: ${err}`); }
 }, 1);
 
 // Register newly spawned or transformed villagers with a 2-tick stabilization delay
@@ -78,6 +83,7 @@ world.afterEvents.entitySpawn.subscribe((event) => {
                 clericManager.onEntitySpawn(entity);
                 armorerManager.onEntitySpawn(entity);
                 librarianManager.onEntitySpawn(entity);
+                villageExpansionManager.onEntitySpawn(entity);
             }, 2);
         }
     } catch {}

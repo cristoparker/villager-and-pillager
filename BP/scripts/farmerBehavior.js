@@ -7,6 +7,7 @@
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { FARMER_CONFIG, FLETCHER_CONFIG } from "./config.js";
 import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe } from "./utils.js";
+import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
  * Equips iron hoe in the farmer villager's main hand.
@@ -318,10 +319,13 @@ export function performHarvest(villager, cropInfo) {
     // 4. Drop harvested crop produce
     try {
         const dropAmount = 1 + Math.floor(Math.random() * 2);
-        dim.spawnItem(new ItemStack(cropDef.loot, dropAmount), { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
+        const cropDrop = dim.spawnItem(new ItemStack(cropDef.loot, dropAmount), { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
+        if (cropDrop) notifyDroppedItem(villager, cropDrop);
+
         if (cropDef.seed && cropDef.seed !== cropDef.loot) {
             const seedAmount = 1 + Math.floor(Math.random() * 2);
-            dim.spawnItem(new ItemStack(cropDef.seed, seedAmount), { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
+            const seedDrop = dim.spawnItem(new ItemStack(cropDef.seed, seedAmount), { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
+            if (seedDrop) notifyDroppedItem(villager, seedDrop);
         }
     } catch {}
 

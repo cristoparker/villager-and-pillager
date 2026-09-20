@@ -8,6 +8,7 @@
 import { ItemStack, EquipmentSlot } from "@minecraft/server";
 import { FLETCHER_CONFIG } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
  * Equips a Bow or Crossbow in the Fletcher's main hand.
@@ -518,11 +519,14 @@ export function performCraftTippedArrows(villager, tablePos) {
 
     // Drop arrow reward
     try {
-        dim.spawnItem(new ItemStack(FLETCHER_CONFIG.ARROW_ITEM_ID, 2), {
+        const dropEntity = dim.spawnItem(new ItemStack(FLETCHER_CONFIG.ARROW_ITEM_ID, 2), {
             x: tablePos.x + 0.5,
             y: tablePos.y + 0.7,
             z: tablePos.z + 0.5
         });
+        if (dropEntity) {
+            notifyDroppedItem(villager, dropEntity);
+        }
     } catch {}
 
     playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });

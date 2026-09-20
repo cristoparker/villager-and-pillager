@@ -58,10 +58,17 @@
               "minecraft:arrow",
               "minecraft:carpet",
               "minecraft:white_carpet",
-              "minecraft:goat_horn"
+              "minecraft:goat_horn",
+              "minecraft:chest",
+              "minecraft:barrel",
+              "minecraft:bed"
             ]
           }
         ]
+      },
+      "minecraft:inventory": {
+        "inventory_size": 8,
+        "can_be_siphoned_from": true
       },
       "minecraft:annotation.open_door": {},
       "minecraft:behavior.avoid_mob_type": {
@@ -280,14 +287,10 @@
           }
         ]
       },
-      "minecraft:inventory": {
-        "inventory_size": 8,
-        "private": true
-      },
       "minecraft:is_hidden_when_invisible": {},
       "minecraft:jump.static": {},
       "minecraft:mark_variant": {
-        "value": 0 // Villagers have the Plains biome skin by default
+        "value": 0
       },
       "minecraft:movement": {
         "value": 0.5

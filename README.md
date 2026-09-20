@@ -19,6 +19,39 @@ A modular, high-depth Minecraft Bedrock Behavior & Resource Pack that transforms
 
 ---
 
+## 🏛️ Universal Item Collection, Village Expansion & Chest Organization
+
+This update brings an entirely new layer of autonomous civilization-building to Minecraft Bedrock villagers:
+
+### 🎒 1. Universal Item Collection (All Villagers)
+- **Automatic Ground Item Scanning**:
+  - Every villager—regardless of profession (including Nitwits and Unemployed villagers)—actively monitors their surroundings for dropped ground items within 12 blocks.
+  - Detects meat and leather from butchers, wool and carpets from shepherds, sugarcane and books from librarians, crops and seeds from farmers, arrows from fletchers, fish from fishermen, and any item dropped by players or the environment.
+- **Approaching & Vacuuming**:
+  - Villagers smoothly walk over to the dropped item with realistic leg locomotion and pickup audio (`random.pop`).
+  - Items are picked up and stored directly inside the villager's internal 8-slot inventory or carried storage.
+  - Emits villager sparkle particles (`minecraft:villager_happy`) upon collection.
+
+### 🛏️ 2. Autonomous Village Expansion (Beds & Workbenches for Breeding)
+- **Bed Placement & Breeding Headroom**:
+  - Villagers autonomously build out the village sleeping quarters by placing beds on flat, valid solid ground.
+  - Strictly verifies **2-block clear headroom** above the mattress (essential for baby villagers to jump on beds and register valid Bedrock breeding village bounds).
+  - Plays authentic bed placement sounds (`dig.wood`) and equips the bed in mainhand while placing.
+  - Automatically enables villagers to enter "willing" breeding mode as bed capacity exceeds the current villager count, spawning baby villagers naturally!
+- **Workbench Expansion**:
+  - Villagers periodically erect workstations nearly (Smokers, Composters, Looms, Lecterns, Barrels, Blast Furnaces, Fletching Tables, Grindstones, Brewing Stands).
+  - Unemployed villagers in the vicinity immediately discover the new workstations, claiming them and adopting specialized professions.
+
+### 📦 3. Copper Golem-Style Chest Organization & Placement
+- **Chest & Container Deposit**:
+  - Villagers carrying collected items scan up to 16 blocks for village storage containers (`minecraft:chest`, `minecraft:trapped_chest`, `minecraft:barrel`).
+  - They approach the container, visibly interact, play chest opening audio (`random.chestopen`), transfer and organize their collected goods into the container's inventory slots, and close it (`random.chestclosed`) with happy particles.
+- **Autonomous Chest Construction**:
+  - If a villager has collected items but no chest or barrel exists within reach, they take initiative:
+  - Equips a chest in hand, identifies a valid adjacent solid block, places a brand-new **Village Chest**, and immediately transfers all carried goods into it!
+
+---
+
 ## 🧑‍🌾 Profession Roster & Features
 
 ### 🌾 1. Smart Farmer Villager
@@ -220,3 +253,6 @@ This automatically synchronizes changes from `BP/` and `RP/` directly into your 
 - **Fisherman**: Place a Barrel near water (`/summon villager_v2 ~ ~ ~ 0 2`). Watch the fisherman detect water, cast, and reel in catch!
 - **Librarian**: Place a Lectern near water (`/summon villager_v2 ~ ~ ~ 0 5`). Watch them plant and harvest sugarcane, study, and dispel negative curses from allies!
 - **Cleric**: Place a Brewing Stand (`/summon villager_v2 ~ ~ ~ 0 7`). Spawn a Zombie Villager nearby to watch the weakness + golden apple curing ritual!
+- **Universal Item Pickup**: Drop any items on the ground near any villager (raw meat, wool, paper, wheat, seeds, or arrows). The nearest villager will approach, collect the items with pop sounds, and store them!
+- **Chest Storage & Organization**: Place a chest nearby, or let a villager collect items when no chest exists. Watch them deposit items with chest animations or autonomously construct a new village chest!
+- **Village Expansion & Breeding**: Place several villagers in an open area. Watch them place beds with valid clearance and workbenches, creating new homes and breeding baby villagers!

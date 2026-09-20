@@ -7,6 +7,7 @@
 import { ItemStack, EquipmentSlot } from "@minecraft/server";
 import { LIBRARIAN_CONFIG, FLETCHER_CONFIG } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe } from "./utils.js";
+import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
  * Equips enchanted book or book in the librarian's main hand.
@@ -352,11 +353,14 @@ export function performHarvestSugarcane(villager, sugarcaneInfo) {
 
     // Drop sugarcane produce items
     try {
-        dim.spawnItem(new ItemStack(LIBRARIAN_CONFIG.SUGARCANE_ITEM_ID, Math.max(1, harvestedCount)), {
+        const droppedCane = dim.spawnItem(new ItemStack(LIBRARIAN_CONFIG.SUGARCANE_ITEM_ID, Math.max(1, harvestedCount)), {
             x: pos.x + 0.5,
             y: pos.y + 0.5,
             z: pos.z + 0.5
         });
+        if (droppedCane) {
+            notifyDroppedItem(villager, droppedCane);
+        }
     } catch {}
 
     return true;
@@ -409,11 +413,14 @@ export function performCraftBooks(villager, lecternPos) {
         const dropItem = Math.random() < 0.5 
             ? new ItemStack(LIBRARIAN_CONFIG.PAPER_ITEM_ID, 2)
             : new ItemStack(LIBRARIAN_CONFIG.REGULAR_BOOK_ITEM_ID, 1);
-        dim.spawnItem(dropItem, {
+        const droppedCraft = dim.spawnItem(dropItem, {
             x: lecternPos.x + 0.5,
             y: lecternPos.y + 0.8,
             z: lecternPos.z + 0.5
         });
+        if (droppedCraft) {
+            notifyDroppedItem(villager, droppedCraft);
+        }
     } catch {}
 
     equipBook(villager);
