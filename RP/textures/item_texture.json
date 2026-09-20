@@ -19,6 +19,12 @@
     },
     "iron_axe": {
       "textures": "textures/items/iron_axe"
+    },
+    "bow": {
+      "textures": "textures/items/bow_standby"
+    },
+    "crossbow": {
+      "textures": "textures/items/crossbow_standby"
     }
   }
 }

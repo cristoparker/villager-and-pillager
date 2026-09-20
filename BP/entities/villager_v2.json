@@ -16,7 +16,9 @@
               "rpc:shears",
               "minecraft:shears",
               "rpc:cleaver",
-              "minecraft:iron_axe"
+              "minecraft:iron_axe",
+              "minecraft:bow",
+              "minecraft:crossbow"
             ]
           }
         ]
@@ -279,6 +281,21 @@
       }
     },
     "component_groups": {
+      "rpc:approach_target": {
+        "minecraft:behavior.move_to_block": {
+          "priority": 3,
+          "tick_interval": 1,
+          "start_chance": 1.0,
+          "search_range": 24,
+          "search_height": 8,
+          "goal_radius": 6.0,
+          "speed_multiplier": 0.85,
+          "target_selection_method": "nearest",
+          "target_blocks": [
+            "minecraft:target"
+          ]
+        }
+      },
       "rpc:approach_smoker": {
         "minecraft:behavior.move_to_block": {
           "priority": 3,
@@ -1019,15 +1036,23 @@
         },
         "minecraft:behavior.follow_mob": {
           "priority": 4,
-          "speed_multiplier": 0.8,
-          "search_range": 24,
+          "speed_multiplier": 0.85,
+          "search_range": 28,
           "stop_distance": 2.0,
+          "preferred_actor_type": "minecraft:cow",
           "filters": {
             "any_of": [
               { "test": "is_family", "subject": "other", "value": "pig" },
               { "test": "is_family", "subject": "other", "value": "cow" }
             ]
           }
+        },
+        "minecraft:behavior.random_stroll": {
+          "priority": 8,
+          "speed_multiplier": 0.65,
+          "interval": 40,
+          "xz_dist": 14,
+          "y_dist": 5
         },
         "minecraft:equipment": {
           "slot_drop_chance": [
@@ -1729,6 +1754,21 @@
         },
         "minecraft:variant": {
           "value": 4
+        },
+        "minecraft:behavior.random_stroll": {
+          "priority": 8,
+          "speed_multiplier": 0.65,
+          "interval": 40,
+          "xz_dist": 14,
+          "y_dist": 5
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
         }
       },
       "gather_schedule_villager": {
@@ -2363,6 +2403,20 @@
       }
     },
     "events": {
+      "rpc:start_approach_target": {
+        "add": {
+          "component_groups": [
+            "rpc:approach_target"
+          ]
+        }
+      },
+      "rpc:stop_approach_target": {
+        "remove": {
+          "component_groups": [
+            "rpc:approach_target"
+          ]
+        }
+      },
       "rpc:start_approach_smoker": {
         "add": {
           "component_groups": [
@@ -2477,7 +2531,7 @@
             "adult",
             "make_and_receive_love",
             "behavior_non_peasant",
-            "work_schedule"
+            "basic_schedule"
           ]
         },
         "remove": {
@@ -2485,7 +2539,8 @@
             "baby",
             "child_schedule",
             "job_specific_goals",
-            "trade_components"
+            "trade_components",
+            "work_schedule"
           ]
         }
       },
@@ -2610,7 +2665,7 @@
             "adult",
             "make_and_receive_love",
             "behavior_non_peasant",
-            "work_schedule"
+            "basic_schedule"
           ]
         },
         "remove": {
@@ -2618,7 +2673,33 @@
             "baby",
             "child_schedule",
             "job_specific_goals",
-            "trade_components"
+            "trade_components",
+            "work_schedule"
+          ]
+        }
+      },
+      "rpc:become_fletcher": {
+        "add": {
+          "component_groups": [
+            "fletcher",
+            "adult",
+            "make_and_receive_love",
+            "behavior_non_peasant",
+            "basic_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisherman",
+            "shepherd",
+            "butcher",
+            "fisher_schedule",
+            "rpc:fishing_mode",
+            "work_schedule"
           ]
         }
       },
@@ -2674,7 +2755,7 @@
             "adult",
             "make_and_receive_love",
             "behavior_non_peasant",
-            "work_schedule"
+            "basic_schedule"
           ]
         },
         "remove": {
@@ -2686,7 +2767,8 @@
             "fisherman",
             "shepherd",
             "fisher_schedule",
-            "rpc:fishing_mode"
+            "rpc:fishing_mode",
+            "work_schedule"
           ]
         }
       },

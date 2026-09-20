@@ -103,3 +103,54 @@ export const BUTCHER_CONFIG = {
     COAL_ITEM_ID: "minecraft:coal",
     COAL_LOAD_AMOUNT: 2
 };
+
+export const FLETCHER_CONFIG = {
+    // Search radius to look for hostile monsters (blocks)
+    MONSTER_SEARCH_RADIUS: 18,
+    // Search radius for Target block workstation / practice (blocks)
+    TARGET_BLOCK_SEARCH_RADIUS: 24,
+    // Distance from target block to practice shooting
+    PRACTICE_DISTANCE_MIN: 5.0,
+    PRACTICE_DISTANCE_MAX: 9.0,
+    // Combat parameters
+    ATTACK_INTERVAL_TICKS: 26,       // ~1.3s between bow/crossbow shots in combat
+    PRACTICE_INTERVAL_TICKS: 75,     // ~3.75s between target practice shots
+    AIM_DURATION_TICKS: 18,          // Ticks aiming with raised arms before releasing arrow
+    ARROW_SPEED: 2.2,
+    // Items
+    BOW_ITEM_ID: "minecraft:bow",
+    CROSSBOW_ITEM_ID: "minecraft:crossbow",
+    ARROW_ITEM_ID: "minecraft:arrow",
+    // Hostile monster entity type identifiers
+    HOSTILE_TYPES: [
+        "minecraft:zombie",
+        "minecraft:zombie_villager",
+        "minecraft:husk",
+        "minecraft:drowned",
+        "minecraft:skeleton",
+        "minecraft:stray",
+        "minecraft:creeper",
+        "minecraft:spider",
+        "minecraft:cave_spider",
+        "minecraft:pillager",
+        "minecraft:vindicator",
+        "minecraft:witch",
+        "minecraft:evocation_illager",
+        "minecraft:ravager",
+        "minecraft:slime",
+        "minecraft:phantom",
+        "minecraft:silverfish",
+        "minecraft:endermite",
+        "minecraft:hoglin",
+        "minecraft:piglin_brute",
+        "minecraft:zoglin"
+    ],
+    // Hostile families fallback
+    HOSTILE_FAMILIES: [
+        "monster",
+        "undead",
+        "zombie",
+        "illager"
+    ]
+};
+

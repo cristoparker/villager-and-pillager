@@ -110,6 +110,9 @@ export class ButcherManager {
         const isNight = this.isNightTime();
         if (!isNight) {
             equipAxe(villager);
+            try {
+                villager.triggerEvent("minecraft:schedule_wander_villager");
+            } catch {}
         }
 
         this.records.set(villager.id, {
@@ -177,7 +180,7 @@ export class ButcherManager {
                 // Wait for sunrise
                 if (!isNight) {
                     try {
-                        villager.triggerEvent("minecraft:schedule_work");
+                        villager.triggerEvent("minecraft:schedule_wander_villager");
                     } catch {}
                     equipAxe(villager);
                     record.state = ButcherState.IDLE;
@@ -322,8 +325,8 @@ export class ButcherManager {
             case ButcherState.COOKING: {
                 record.timer--;
 
-                // Face the smoker and raise arms during cooking
-                if (record.smoker) {
+                // Face the smoker on start of cooking (only on first tick to avoid freezing navigation)
+                if (record.timer === 24 && record.smoker) {
                     try {
                         const rot = getLookRotation(villager.location, record.smoker);
                         villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
@@ -351,6 +354,11 @@ export class ButcherManager {
                         z: villager.location.z
                     });
 
+                    // Resume wander schedule so the butcher leaves the smoker
+                    try {
+                        villager.triggerEvent("minecraft:schedule_wander_villager");
+                    } catch {}
+
                     record.meat = null;
                     record.smoker = null;
                     record.state = ButcherState.COOLDOWN;
@@ -364,6 +372,9 @@ export class ButcherManager {
                 if (record.timer <= 0) {
                     record.state = ButcherState.IDLE;
                     record.timer = 15;
+                    try {
+                        villager.triggerEvent("minecraft:schedule_wander_villager");
+                    } catch {}
                 }
                 break;
             }

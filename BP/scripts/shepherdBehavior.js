@@ -18,10 +18,19 @@ export function equipShears(villager) {
     try {
         const equippable = villager.getComponent("minecraft:equippable");
         if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && (current.typeId === SHEPHERD_CONFIG.SHEARS_ITEM_ID || current.typeId === SHEPHERD_CONFIG.VANILLA_SHEARS_ITEM_ID)) {
+                return; // Already equipped!
+            }
+
             try {
                 equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(SHEPHERD_CONFIG.SHEARS_ITEM_ID, 1));
+                return;
             } catch {
-                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(SHEPHERD_CONFIG.VANILLA_SHEARS_ITEM_ID, 1));
+                try {
+                    equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(SHEPHERD_CONFIG.VANILLA_SHEARS_ITEM_ID, 1));
+                    return;
+                } catch {}
             }
         }
     } catch {}

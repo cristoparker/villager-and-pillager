@@ -1,17 +1,19 @@
 /**
  * Villager Professions Addon - Main Entry Point (Namespace: rpc)
  * Initializes the addon, binds world events, player interactions, and executes the central game loop
- * for Fisherman, Shepherd, and Butcher villagers.
+ * for Fisherman, Shepherd, Butcher, and Fletcher villagers.
  */
 
 import { world, system } from "@minecraft/server";
 import { FishermanManager } from "./fishermanManager.js";
 import { ShepherdManager } from "./shepherdManager.js";
 import { ButcherManager } from "./butcherManager.js";
+import { FletcherManager } from "./fletcherManager.js";
 
 const fishermanManager = new FishermanManager();
 const shepherdManager = new ShepherdManager();
 const butcherManager = new ButcherManager();
+const fletcherManager = new FletcherManager();
 
 // Central game tick loop
 system.runInterval(() => {
@@ -32,6 +34,12 @@ system.runInterval(() => {
     } catch (err) {
         console.error(`[Villager Addon] Error in butcher loop: ${err}`);
     }
+
+    try {
+        fletcherManager.update();
+    } catch (err) {
+        console.error(`[Villager Addon] Error in fletcher loop: ${err}`);
+    }
 }, 1);
 
 // Immediately register newly spawned or transformed villagers
@@ -41,6 +49,7 @@ world.afterEvents.entitySpawn.subscribe((event) => {
             fishermanManager.onEntitySpawn(event.entity);
             shepherdManager.onEntitySpawn(event.entity);
             butcherManager.onEntitySpawn(event.entity);
+            fletcherManager.onEntitySpawn(event.entity);
         }
     } catch {}
 });
@@ -49,6 +58,7 @@ world.afterEvents.entitySpawn.subscribe((event) => {
 // - Right-click any villager with rpc:fishing_rod to turn them into a Fisherman
 // - Right-click any villager with rpc:shears or minecraft:shears to turn them into a Shepherd
 // - Right-click any villager with rpc:cleaver or minecraft:iron_axe to turn them into a Butcher
+// - Right-click any villager with minecraft:bow or minecraft:crossbow to turn them into a Fletcher
 world.afterEvents.playerInteractWithEntity.subscribe((event) => {
     try {
         const { player, target } = event;
@@ -66,8 +76,11 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                 target.removeTag("shepherd");
                 target.removeTag("rpc:butcher");
                 target.removeTag("butcher");
+                target.removeTag("rpc:fletcher");
+                target.removeTag("fletcher");
                 shepherdManager.records.delete(target.id);
                 butcherManager.records.delete(target.id);
+                fletcherManager.records.delete(target.id);
 
                 target.triggerEvent("rpc:become_fisherman");
                 target.triggerEvent("minecraft:become_fisherman");
@@ -83,6 +96,8 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                 target.removeTag("fisherman");
                 target.removeTag("rpc:butcher");
                 target.removeTag("butcher");
+                target.removeTag("rpc:fletcher");
+                target.removeTag("fletcher");
                 try {
                     target.triggerEvent("rpc:stop_fishing");
                 } catch {}
@@ -94,6 +109,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                     fishermanManager.records.delete(target.id);
                 }
                 butcherManager.records.delete(target.id);
+                fletcherManager.records.delete(target.id);
 
                 target.triggerEvent("rpc:become_shepherd");
                 target.triggerEvent("minecraft:become_sheperd");
@@ -109,6 +125,8 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                 target.removeTag("fisherman");
                 target.removeTag("rpc:shepherd");
                 target.removeTag("shepherd");
+                target.removeTag("rpc:fletcher");
+                target.removeTag("fletcher");
                 try {
                     target.triggerEvent("rpc:stop_fishing");
                 } catch {}
@@ -120,6 +138,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                     fishermanManager.records.delete(target.id);
                 }
                 shepherdManager.records.delete(target.id);
+                fletcherManager.records.delete(target.id);
 
                 target.triggerEvent("rpc:become_butcher");
                 target.triggerEvent("minecraft:become_butcher");
@@ -128,6 +147,36 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
 
                 butcherManager.registerButcher(target);
             }
+
+            // Turn into Fletcher (Bow or Crossbow)
+            if (mainhand.typeId === "minecraft:bow" || mainhand.typeId === "minecraft:crossbow") {
+                target.removeTag("rpc:fisherman");
+                target.removeTag("fisherman");
+                target.removeTag("rpc:shepherd");
+                target.removeTag("shepherd");
+                target.removeTag("rpc:butcher");
+                target.removeTag("butcher");
+                try {
+                    target.triggerEvent("rpc:stop_fishing");
+                } catch {}
+                if (fishermanManager.records.has(target.id)) {
+                    const rec = fishermanManager.records.get(target.id);
+                    if (rec && rec.fishingSession) {
+                        try { rec.fishingSession.bobber?.remove(); } catch {}
+                    }
+                    fishermanManager.records.delete(target.id);
+                }
+                shepherdManager.records.delete(target.id);
+                butcherManager.records.delete(target.id);
+
+                target.triggerEvent("rpc:become_fletcher");
+                target.triggerEvent("minecraft:become_fletcher");
+                target.addTag("rpc:fletcher");
+                target.addTag("fletcher");
+
+                fletcherManager.setWeapon(target, mainhand.typeId);
+            }
         }
     } catch {}
 });
+

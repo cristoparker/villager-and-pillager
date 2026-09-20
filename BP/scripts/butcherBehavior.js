@@ -18,10 +18,19 @@ export function equipAxe(villager) {
     try {
         const equippable = villager.getComponent("minecraft:equippable");
         if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && (current.typeId === BUTCHER_CONFIG.CLEAVER_ITEM_ID || current.typeId === BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID)) {
+                return; // Already equipped, prevent pathfinding hitch
+            }
+
             try {
                 equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(BUTCHER_CONFIG.CLEAVER_ITEM_ID, 1));
+                return;
             } catch {
-                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID, 1));
+                try {
+                    equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID, 1));
+                    return;
+                } catch {}
             }
         }
     } catch {}
