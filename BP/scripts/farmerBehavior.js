@@ -4,7 +4,7 @@
  * composter fertilization routines, and crop drop mechanics.
  */
 
-import { ItemStack, EquipmentSlot } from "@minecraft/server";
+import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { FARMER_CONFIG, FLETCHER_CONFIG } from "./config.js";
 import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe } from "./utils.js";
 
@@ -732,3 +732,245 @@ export function performAttackMonster(villager, monster) {
 
     return true;
 }
+
+/**
+ * Equips a specific food item (wheat, seeds, carrot) in the farmer's mainhand.
+ * @param {Entity} villager 
+ * @param {string} foodItemId 
+ */
+export function equipFoodItem(villager, foodItemId) {
+    if (!villager || !villager.isValid() || !foodItemId) return;
+
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && current.typeId === foodItemId) {
+                return;
+            }
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(foodItemId, 1));
+                return;
+            } catch {}
+        }
+    } catch {}
+
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${foodItemId}`).catch(() => {});
+    } catch {}
+}
+
+/**
+ * Scans nearby loaded entities for baby cows, sheep, chickens, and pigs to feed and grow.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {{ entity: Entity, speciesDef: any, pos: Vector3 } | null}
+ */
+export function findNearbyBabyAnimals(dimension, location, radius = FARMER_CONFIG.ANIMAL_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (const species of FARMER_CONFIG.BREEDABLE_ANIMALS) {
+        try {
+            const entities = dimension.getEntities({
+                type: species.typeId,
+                location: location,
+                maxDistance: radius
+            });
+
+            for (const entity of entities) {
+                if (!entity || !entity.isValid()) continue;
+
+                // Check if the entity is a baby
+                let isBaby = false;
+                try {
+                    if (entity.getComponent("minecraft:is_baby") !== undefined) {
+                        isBaby = true;
+                    }
+                } catch {}
+
+                if (isBaby) {
+                    const d = distance(location, entity.location);
+                    if (d < closestDist) {
+                        closestDist = d;
+                        closest = { entity, speciesDef: species, pos: entity.location };
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    return closest;
+}
+
+/**
+ * Feeds a baby animal with its favorite food, playing eating sounds, growth particles,
+ * and triggering its ageable_grow_up event to accelerate its growth into an adult!
+ * @param {Entity} villager 
+ * @param {{ entity: Entity, speciesDef: any, pos: Vector3 }} babyInfo 
+ */
+export function performFeedBabyAnimal(villager, babyInfo) {
+    if (!villager || !villager.isValid() || !babyInfo || !babyInfo.entity || !babyInfo.entity.isValid()) return false;
+
+    const dim = villager.dimension;
+    const baby = babyInfo.entity;
+    const bLoc = baby.location;
+    const vLoc = villager.location;
+
+    // Face the baby animal
+    try {
+        const rot = getLookRotation(vLoc, bLoc);
+        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    // Play eating sound and growth particle effects
+    playSoundSafe(dim, "random.eat", bLoc, { volume: 1.0, pitch: 1.2 });
+    spawnParticleSafe(dim, "minecraft:crop_growth_area_emitter", { x: bLoc.x, y: bLoc.y + 0.4, z: bLoc.z });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: bLoc.x, y: bLoc.y + 0.7, z: bLoc.z });
+
+    // Instantly grow up baby animal into an adult!
+    try {
+        baby.triggerEvent("minecraft:ageable_grow_up");
+    } catch {}
+
+    // Celebratory feedback
+    playSoundSafe(dim, "mob.villager.yes", vLoc, { volume: 0.9, pitch: 1.1 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: vLoc.x, y: vLoc.y + 1.8, z: vLoc.z });
+
+    return true;
+}
+
+/**
+ * Scans nearby entities for 2 adult animals of the same species that can breed together.
+ * @param {Dimension} dimension 
+ * @param {Vector3} location 
+ * @param {number} radius 
+ * @returns {{ animalA: Entity, animalB: Entity, speciesDef: any, centerPos: Vector3 } | null}
+ */
+export function findNearbyBreedableAnimalPair(dimension, location, radius = FARMER_CONFIG.ANIMAL_SEARCH_RADIUS) {
+    if (!dimension || !location) return null;
+
+    for (const species of FARMER_CONFIG.BREEDABLE_ANIMALS) {
+        try {
+            const entities = dimension.getEntities({
+                type: species.typeId,
+                location: location,
+                maxDistance: radius
+            });
+
+            // Filter for adult entities not on cooldown
+            const adults = [];
+            for (const entity of entities) {
+                if (!entity || !entity.isValid()) continue;
+
+                // Baby check
+                let isBaby = false;
+                try {
+                    if (entity.getComponent("minecraft:is_baby") !== undefined) isBaby = true;
+                } catch {}
+                if (isBaby) continue;
+
+                // Cooldown check
+                try {
+                    if (entity.hasTag("rpc:recently_bred")) continue;
+                } catch {}
+
+                adults.push(entity);
+            }
+
+            // Need at least 2 adults of the same species
+            if (adults.length >= 2) {
+                // Find two adults that are close to each other (<= 8 blocks apart)
+                for (let i = 0; i < adults.length; i++) {
+                    for (let j = i + 1; j < adults.length; j++) {
+                        const a = adults[i];
+                        const b = adults[j];
+                        const dBetween = distance(a.location, b.location);
+                        if (dBetween <= 8.0) {
+                            const midX = (a.location.x + b.location.x) / 2.0;
+                            const midY = (a.location.y + b.location.y) / 2.0;
+                            const midZ = (a.location.z + b.location.z) / 2.0;
+                            return {
+                                animalA: a,
+                                animalB: b,
+                                speciesDef: species,
+                                centerPos: { x: midX, y: midY, z: midZ }
+                            };
+                        }
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    return null;
+}
+
+/**
+ * Breeds a pair of adult animals with their favorite food, emitting heart particles,
+ * eating sounds, and spawning a baby offspring.
+ * @param {Entity} villager 
+ * @param {{ animalA: Entity, animalB: Entity, speciesDef: any, centerPos: Vector3 }} breedPairInfo 
+ */
+export function performBreedAnimals(villager, breedPairInfo) {
+    if (!villager || !villager.isValid() || !breedPairInfo) return false;
+    const { animalA, animalB, speciesDef, centerPos } = breedPairInfo;
+    if (!animalA || !animalA.isValid() || !animalB || !animalB.isValid()) return false;
+
+    const dim = villager.dimension;
+    const vLoc = villager.location;
+
+    // Face the breeding pair
+    try {
+        const rot = getLookRotation(vLoc, centerPos);
+        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    // Feed sounds on both parents
+    playSoundSafe(dim, "random.eat", animalA.location, { volume: 1.0, pitch: 1.0 });
+    playSoundSafe(dim, "random.eat", animalB.location, { volume: 1.0, pitch: 1.0 });
+
+    // Love hearts on both parents!
+    spawnParticleSafe(dim, "minecraft:heart_particle", { x: animalA.location.x, y: animalA.location.y + 1.2, z: animalA.location.z });
+    spawnParticleSafe(dim, "minecraft:heart_particle", { x: animalB.location.x, y: animalB.location.y + 1.2, z: animalB.location.z });
+
+    // Add breeding cooldown tags (60s cooldown)
+    try { animalA.addTag("rpc:recently_bred"); } catch {}
+    try { animalB.addTag("rpc:recently_bred"); } catch {}
+    system.runTimeout(() => {
+        try { if (animalA.isValid()) animalA.removeTag("rpc:recently_bred"); } catch {}
+        try { if (animalB.isValid()) animalB.removeTag("rpc:recently_bred"); } catch {}
+    }, 1200);
+
+    // Spawn the baby animal between the parents!
+    try {
+        const babyPos = {
+            x: (animalA.location.x + animalB.location.x) / 2.0,
+            y: (animalA.location.y + animalB.location.y) / 2.0,
+            z: (animalA.location.z + animalB.location.z) / 2.0
+        };
+        const baby = dim.spawnEntity(speciesDef.typeId, babyPos);
+        if (baby && baby.isValid()) {
+            try {
+                baby.triggerEvent("minecraft:entity_born");
+            } catch {}
+            spawnParticleSafe(dim, "minecraft:heart_particle", { x: babyPos.x, y: babyPos.y + 0.6, z: babyPos.z });
+            spawnParticleSafe(dim, "minecraft:villager_happy", { x: babyPos.x, y: babyPos.y + 0.6, z: babyPos.z });
+            playSoundSafe(dim, "random.pop", babyPos, { volume: 0.9, pitch: 1.4 });
+        }
+    } catch (e) {
+        console.warn(`[Farmer] Error spawning baby ${speciesDef.typeId}: ${e}`);
+    }
+
+    // Farmer satisfaction feedback
+    playSoundSafe(dim, "mob.villager.yes", vLoc, { volume: 0.9, pitch: 1.05 });
+    spawnParticleSafe(dim, "minecraft:villager_happy", { x: vLoc.x, y: vLoc.y + 1.8, z: vLoc.z });
+
+    return true;
+}
+

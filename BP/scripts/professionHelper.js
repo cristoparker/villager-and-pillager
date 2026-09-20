@@ -14,7 +14,7 @@ export const PROFESSION_DATA = {
         variant: 1,
         family: "farmer",
         defaultItem: "minecraft:iron_hoe",
-        allowedItems: ["minecraft:iron_hoe"],
+        allowedItems: ["minecraft:iron_hoe", "minecraft:bone_meal", "minecraft:wheat", "minecraft:wheat_seeds", "minecraft:carrot", "minecraft:potato", "minecraft:beetroot"],
         tag: "farmer",
         rpcTag: "rpc:farmer",
         displayName: "§e[Farmer]"

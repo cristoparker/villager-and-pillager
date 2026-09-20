@@ -192,7 +192,40 @@ export const FARMER_CONFIG = {
     BONEMEAL_SEARCH_RADIUS: 12,
     MONSTER_SEARCH_RADIUS: 14,
     ATTACK_DISTANCE: 2.5,
-    ATTACK_DAMAGE: 6
+    ATTACK_DAMAGE: 6,
+    ANIMAL_SEARCH_RADIUS: 14,
+    ANIMAL_FEED_DISTANCE: 2.5,
+    ANIMAL_FEED_ANIMATION_TICKS: 25,
+    BREEDABLE_ANIMALS: [
+        {
+            typeId: "minecraft:cow",
+            foodItem: "minecraft:wheat",
+            foodItemId: "minecraft:wheat",
+            family: "cow",
+            name: "Cow"
+        },
+        {
+            typeId: "minecraft:sheep",
+            foodItem: "minecraft:wheat",
+            foodItemId: "minecraft:wheat",
+            family: "sheep",
+            name: "Sheep"
+        },
+        {
+            typeId: "minecraft:chicken",
+            foodItem: "minecraft:wheat_seeds",
+            foodItemId: "minecraft:wheat_seeds",
+            family: "chicken",
+            name: "Chicken"
+        },
+        {
+            typeId: "minecraft:pig",
+            foodItem: "minecraft:carrot",
+            foodItemId: "minecraft:carrot",
+            family: "pig",
+            name: "Pig"
+        }
+    ]
 };
 
 export const WEAPONSMITH_CONFIG = {

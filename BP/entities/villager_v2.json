@@ -31,7 +31,12 @@
               "minecraft:stone_brick",
               "minecraft:leather",
               "minecraft:bone_meal",
-              "minecraft:sugar_cane"
+              "minecraft:sugar_cane",
+              "minecraft:wheat",
+              "minecraft:wheat_seeds",
+              "minecraft:carrot",
+              "minecraft:potato",
+              "minecraft:beetroot"
             ]
           }
         ]

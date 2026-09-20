@@ -27,7 +27,12 @@ import {
     findNearbySapling,
     performBoneMealSapling,
     findNearbyMonsters,
-    performAttackMonster
+    performAttackMonster,
+    equipFoodItem,
+    findNearbyBabyAnimals,
+    performFeedBabyAnimal,
+    findNearbyBreedableAnimalPair,
+    performBreedAnimals
 } from "./farmerBehavior.js";
 
 export const FarmerState = {
@@ -37,6 +42,10 @@ export const FarmerState = {
     HARVESTING: "HARVESTING",
     APPROACHING_EMPTY_FARMLAND: "APPROACHING_EMPTY_FARMLAND",
     PLANTING_CROP: "PLANTING_CROP",
+    APPROACHING_BABY_ANIMAL: "APPROACHING_BABY_ANIMAL",
+    FEEDING_BABY_ANIMAL: "FEEDING_BABY_ANIMAL",
+    APPROACHING_BREED_PAIR: "APPROACHING_BREED_PAIR",
+    BREEDING_ANIMALS: "BREEDING_ANIMALS",
     APPROACHING_BONEMEAL_CROP: "APPROACHING_BONEMEAL_CROP",
     BONEMEALING_CROP: "BONEMEALING_CROP",
     APPROACHING_COMPOSTER: "APPROACHING_COMPOSTER",
@@ -130,6 +139,8 @@ export class FarmerManager {
             targetCrop: null,
             emptyFarmland: null,
             targetUngrownCrop: null,
+            targetBabyAnimal: null,
+            targetBreedPair: null,
             composter: null,
             flowerSpot: null,
             saplingSpot: null,
@@ -182,6 +193,8 @@ export class FarmerManager {
                 record.targetCrop = null;
                 record.emptyFarmland = null;
                 record.targetUngrownCrop = null;
+                record.targetBabyAnimal = null;
+                record.targetBreedPair = null;
                 record.composter = null;
                 continue;
             }
@@ -302,7 +315,39 @@ export class FarmerManager {
                         break;
                     }
 
-                    // 3. Scan for un-grown crops to fertilize with bone meal
+                    // 3. Scan for baby animals (cows, sheep, chickens, pigs) to feed and accelerate growth
+                    const babyAnimal = findNearbyBabyAnimals(villager.dimension, villager.location, FARMER_CONFIG.ANIMAL_SEARCH_RADIUS);
+                    if (babyAnimal) {
+                        record.targetBabyAnimal = babyAnimal;
+                        equipFoodItem(villager, babyAnimal.speciesDef.foodItemId);
+                        const dist = distance(villager.location, babyAnimal.pos);
+                        if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE) {
+                            record.state = FarmerState.FEEDING_BABY_ANIMAL;
+                            record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
+                        } else {
+                            record.state = FarmerState.APPROACHING_BABY_ANIMAL;
+                            record.timer = 100;
+                        }
+                        break;
+                    }
+
+                    // 4. Scan for breedable adult animal pairs (cows, sheep, chickens, pigs) to breed
+                    const breedPair = findNearbyBreedableAnimalPair(villager.dimension, villager.location, FARMER_CONFIG.ANIMAL_SEARCH_RADIUS);
+                    if (breedPair) {
+                        record.targetBreedPair = breedPair;
+                        equipFoodItem(villager, breedPair.speciesDef.foodItemId);
+                        const dist = distance(villager.location, breedPair.centerPos);
+                        if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE + 1.0) {
+                            record.state = FarmerState.BREEDING_ANIMALS;
+                            record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
+                        } else {
+                            record.state = FarmerState.APPROACHING_BREED_PAIR;
+                            record.timer = 100;
+                        }
+                        break;
+                    }
+
+                    // 5. Scan for un-grown crops to fertilize with bone meal
                     const ungrownCrop = findNearbyUngrownCrop(villager.dimension, villager.location, 14);
                     if (ungrownCrop) {
                         record.targetUngrownCrop = ungrownCrop;
@@ -317,7 +362,7 @@ export class FarmerManager {
                         break;
                     }
 
-                    // 4. Scan for saplings to bone meal
+                    // 6. Scan for saplings to bone meal
                     const sapling = findNearbySapling(villager.dimension, villager.location, FARMER_CONFIG.BONEMEAL_SEARCH_RADIUS);
                     if (sapling) {
                         record.targetSapling = sapling;
@@ -470,6 +515,113 @@ export class FarmerManager {
                     record.emptyFarmland = null;
                     record.state = FarmerState.COOLDOWN;
                     record.timer = 30;
+                }
+                break;
+            }
+
+            case FarmerState.APPROACHING_BABY_ANIMAL: {
+                record.timer--;
+                if (!record.targetBabyAnimal || !record.targetBabyAnimal.entity || !record.targetBabyAnimal.entity.isValid()) {
+                    record.state = FarmerState.IDLE;
+                    record.targetBabyAnimal = null;
+                    equipHoe(villager);
+                    record.timer = 10;
+                    break;
+                }
+
+                const baby = record.targetBabyAnimal.entity;
+                if (record.timer % 20 === 0) {
+                    equipFoodItem(villager, record.targetBabyAnimal.speciesDef.foodItemId);
+                }
+
+                try {
+                    const targetPos = baby.location;
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = targetPos.x - villager.location.x;
+                    const dz = targetPos.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, baby.location);
+                if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE) {
+                    record.state = FarmerState.FEEDING_BABY_ANIMAL;
+                    record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
+                } else if (record.timer <= 0) {
+                    record.state = FarmerState.IDLE;
+                    record.targetBabyAnimal = null;
+                    equipHoe(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case FarmerState.FEEDING_BABY_ANIMAL: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetBabyAnimal) {
+                        performFeedBabyAnimal(villager, record.targetBabyAnimal);
+                    }
+                    record.targetBabyAnimal = null;
+                    equipHoe(villager);
+                    record.state = FarmerState.COOLDOWN;
+                    record.timer = 40;
+                }
+                break;
+            }
+
+            case FarmerState.APPROACHING_BREED_PAIR: {
+                record.timer--;
+                if (!record.targetBreedPair || !record.targetBreedPair.animalA || !record.targetBreedPair.animalA.isValid() || !record.targetBreedPair.animalB || !record.targetBreedPair.animalB.isValid()) {
+                    record.state = FarmerState.IDLE;
+                    record.targetBreedPair = null;
+                    equipHoe(villager);
+                    record.timer = 10;
+                    break;
+                }
+
+                const targetPos = record.targetBreedPair.centerPos;
+                if (record.timer % 20 === 0) {
+                    equipFoodItem(villager, record.targetBreedPair.speciesDef.foodItemId);
+                }
+
+                try {
+                    if (record.timer % 10 === 0) {
+                        const rot = getLookRotation(villager.location, targetPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                    }
+                    const dx = targetPos.x - villager.location.x;
+                    const dz = targetPos.z - villager.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                } catch {}
+
+                const dist = distance(villager.location, targetPos);
+                if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE + 1.0) {
+                    record.state = FarmerState.BREEDING_ANIMALS;
+                    record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
+                } else if (record.timer <= 0) {
+                    record.state = FarmerState.IDLE;
+                    record.targetBreedPair = null;
+                    equipHoe(villager);
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case FarmerState.BREEDING_ANIMALS: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetBreedPair) {
+                        performBreedAnimals(villager, record.targetBreedPair);
+                    }
+                    record.targetBreedPair = null;
+                    equipHoe(villager);
+                    record.state = FarmerState.COOLDOWN;
+                    record.timer = 40;
                 }
                 break;
             }
@@ -701,6 +853,7 @@ export class FarmerManager {
             case FarmerState.COOLDOWN: {
                 record.timer--;
                 if (record.timer <= 0) {
+                    equipHoe(villager);
                     record.state = FarmerState.IDLE;
                     record.timer = 15;
                 }
