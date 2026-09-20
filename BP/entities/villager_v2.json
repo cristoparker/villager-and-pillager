@@ -3,7 +3,7 @@
   "minecraft:entity": {
     "description": {
       "identifier": "minecraft:villager_v2",
-      "is_summonable": false,
+      "is_summonable": true,
       "is_spawnable": true
     },
     "components": {
@@ -18,7 +18,18 @@
               "rpc:cleaver",
               "minecraft:iron_axe",
               "minecraft:bow",
-              "minecraft:crossbow"
+              "minecraft:crossbow",
+              "minecraft:iron_hoe",
+              "minecraft:iron_sword",
+              "minecraft:potion",
+              "minecraft:splash_potion",
+              "minecraft:enchanted_book",
+              "minecraft:book",
+              "minecraft:iron_pickaxe",
+              "minecraft:iron_ingot",
+              "minecraft:map",
+              "minecraft:stone_brick",
+              "minecraft:leather"
             ]
           }
         ]
@@ -543,6 +554,17 @@
         },
         "minecraft:variant": {
           "value": 8
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_armorer.json"
         }
       },
       "bed_schedule_villager": {
@@ -597,6 +619,17 @@
         },
         "minecraft:variant": {
           "value": 6
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_cartographer.json"
         }
       },
       "basic_schedule": {
@@ -988,6 +1021,63 @@
         },
         "minecraft:variant": {
           "value": 9
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_weaponsmith.json"
+        },
+        "minecraft:attack": {
+          "damage": 7
+        },
+        "minecraft:behavior.melee_attack": {
+          "priority": 3,
+          "speed_multiplier": 1.15,
+          "track_target": true,
+          "reach_multiplier": 1.5
+        },
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 2,
+          "must_see": true,
+          "reselect_targets": true,
+          "within_radius": 16.0,
+          "entity_types": [
+            {
+              "filters": {
+                "any_of": [
+                  { "test": "is_family", "subject": "other", "value": "monster" },
+                  { "test": "is_family", "subject": "other", "value": "zombie" },
+                  { "test": "is_family", "subject": "other", "value": "undead" },
+                  { "test": "is_family", "subject": "other", "value": "skeleton" },
+                  { "test": "is_family", "subject": "other", "value": "spider" },
+                  { "test": "is_family", "subject": "other", "value": "creeper" },
+                  { "test": "is_family", "subject": "other", "value": "illager" }
+                ]
+              },
+              "max_dist": 16.0
+            }
+          ]
+        },
+        "minecraft:behavior.avoid_mob_type": {
+          "priority": 10,
+          "entity_types": []
+        },
+        "minecraft:behavior.panic": {
+          "priority": 10,
+          "speed_multiplier": 0.6
+        },
+        "minecraft:behavior.random_stroll": {
+          "priority": 8,
+          "speed_multiplier": 0.65,
+          "interval": 40,
+          "xz_dist": 14,
+          "y_dist": 5
         }
       },
       "butcher": {
@@ -1057,10 +1147,13 @@
         "minecraft:equipment": {
           "slot_drop_chance": [
             {
-              "drop_chance": 0,
+              "drop_chance": 0.85,
               "slot": "slot.weapon.mainhand"
             }
           ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_butcher.json"
         },
         "minecraft:attack": {
           "damage": 6
@@ -1274,6 +1367,17 @@
         },
         "minecraft:variant": {
           "value": 7
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_cleric.json"
         }
       },
       "desert_villager": {
@@ -1324,6 +1428,17 @@
         },
         "minecraft:variant": {
           "value": 1
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_farmer.json"
         }
       },
       "work_schedule_farmer": {
@@ -1748,6 +1863,17 @@
         },
         "minecraft:variant": {
           "value": 2
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_fisherman.json"
         }
       },
       "fletcher": {
@@ -1804,10 +1930,13 @@
         "minecraft:equipment": {
           "slot_drop_chance": [
             {
-              "drop_chance": 0,
+              "drop_chance": 0.85,
               "slot": "slot.weapon.mainhand"
             }
           ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_fletcher.json"
         },
         "minecraft:shooter": {
           "def": "minecraft:arrow"
@@ -2019,6 +2148,17 @@
         },
         "minecraft:variant": {
           "value": 5
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_librarian.json"
         }
       },
       "jungle_villager": {
@@ -2069,6 +2209,17 @@
         },
         "minecraft:variant": {
           "value": 12
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_leatherworker.json"
         }
       },
       "librarian_schedule": {
@@ -2207,6 +2358,17 @@
         },
         "minecraft:variant": {
           "value": 13
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_mason.json"
         }
       },
       "work_schedule_fisher": {
@@ -2342,10 +2504,13 @@
         "minecraft:equipment": {
           "slot_drop_chance": [
             {
-              "drop_chance": 0,
+              "drop_chance": 0.85,
               "slot": "slot.weapon.mainhand"
             }
           ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_shepherd.json"
         }
       },
       "swamp_villager": {
@@ -2401,6 +2566,17 @@
         },
         "minecraft:variant": {
           "value": 10
+        },
+        "minecraft:equipment": {
+          "slot_drop_chance": [
+            {
+              "drop_chance": 0.85,
+              "slot": "slot.weapon.mainhand"
+            }
+          ]
+        },
+        "minecraft:loot": {
+          "table": "loot_tables/entities/villager_toolsmith.json"
         }
       },
       // A grouping of components that should never be added

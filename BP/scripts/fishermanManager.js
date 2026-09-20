@@ -46,7 +46,7 @@ export class FishermanManager {
 
         // Exclude other custom professions
         try {
-            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:shepherd")) {
+            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:shepherd") || entity.hasTag("rpc:farmer") || entity.hasTag("rpc:weaponsmith") || entity.hasTag("rpc:cleric") || entity.hasTag("rpc:armorer") || entity.hasTag("rpc:librarian")) {
                 return false;
             }
         } catch {}

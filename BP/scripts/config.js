@@ -154,3 +154,57 @@ export const FLETCHER_CONFIG = {
     ]
 };
 
+export const FARMER_CONFIG = {
+    CROP_SEARCH_RADIUS: 16,
+    CROP_HARVEST_DISTANCE: 2.2,
+    HARVEST_ANIMATION_TICKS: 20,
+    COOLDOWN_TICKS: 50,
+    HOE_ITEM_ID: "minecraft:iron_hoe",
+    CROPS: [
+        { typeId: "minecraft:wheat", maxGrowth: 7, loot: "minecraft:wheat", seed: "minecraft:wheat_seeds" },
+        { typeId: "minecraft:carrots", maxGrowth: 7, loot: "minecraft:carrot", seed: "minecraft:carrot" },
+        { typeId: "minecraft:potatoes", maxGrowth: 7, loot: "minecraft:potato", seed: "minecraft:potato" },
+        { typeId: "minecraft:beetroot", maxGrowth: 7, loot: "minecraft:beetroot", seed: "minecraft:beetroot_seeds" }
+    ],
+    COMPOSTER_ID: "minecraft:composter"
+};
+
+export const WEAPONSMITH_CONFIG = {
+    SWORD_ITEM_ID: "minecraft:iron_sword",
+    GRINDSTONE_ID: "minecraft:grindstone",
+    GRINDSTONE_SEARCH_RADIUS: 18,
+    GRINDSTONE_USE_DISTANCE: 2.2,
+    SHARPEN_ANIMATION_TICKS: 30,
+    COOLDOWN_TICKS: 80,
+    MONSTER_SEARCH_RADIUS: 16
+};
+
+export const CLERIC_CONFIG = {
+    SPLASH_POTION_ITEM_ID: "minecraft:splash_potion",
+    POTION_ITEM_ID: "minecraft:potion",
+    ALLIED_SEARCH_RADIUS: 16,
+    HEAL_DISTANCE: 7.0,
+    HEAL_COOLDOWN_TICKS: 70,
+    HEAL_ANIMATION_TICKS: 22,
+    BREWING_STAND_ID: "minecraft:brewing_stand"
+};
+
+export const ARMORER_CONFIG = {
+    INGOT_ITEM_ID: "minecraft:iron_ingot",
+    GOLEM_SEARCH_RADIUS: 20,
+    REPAIR_DISTANCE: 3.0,
+    REPAIR_COOLDOWN_TICKS: 60,
+    REPAIR_ANIMATION_TICKS: 24,
+    BLAST_FURNACE_ID: "minecraft:blast_furnace"
+};
+
+export const LIBRARIAN_CONFIG = {
+    BOOK_ITEM_ID: "minecraft:enchanted_book",
+    LECTERN_ID: "minecraft:lectern",
+    LECTERN_SEARCH_RADIUS: 18,
+    LECTERN_STUDY_DISTANCE: 2.2,
+    STUDY_ANIMATION_TICKS: 40,
+    INSPIRATION_RADIUS: 12,
+    COOLDOWN_TICKS: 90
+};
+
