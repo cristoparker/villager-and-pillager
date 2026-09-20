@@ -8,6 +8,7 @@
 import { world } from "@minecraft/server";
 import { WEAPONSMITH_CONFIG } from "./config.js";
 import { distance } from "./utils.js";
+import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipSword,
     unequipSword,
@@ -52,27 +53,13 @@ export class WeaponsmithManager {
     isWeaponsmithVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
-        try {
-            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:fisherman") || entity.hasTag("rpc:shepherd") || entity.hasTag("rpc:farmer")) {
-                return false;
-            }
-        } catch {}
-
-        try {
-            if (entity.matches({ families: ["weaponsmith"] })) return true;
-        } catch {}
+        const liveProf = getVillagerProfession(entity);
+        if (liveProf !== null) {
+            return liveProf === "weaponsmith";
+        }
 
         try {
             if (entity.hasTag("rpc:weaponsmith") || entity.hasTag("weaponsmith")) return true;
-        } catch {}
-
-        try {
-            if (entity.nameTag && entity.nameTag.toLowerCase().includes("weapon")) return true;
-        } catch {}
-
-        try {
-            const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && variantComp.value === 9) return true;
         } catch {}
 
         return false;

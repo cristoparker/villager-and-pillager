@@ -8,6 +8,7 @@
 import { world } from "@minecraft/server";
 import { SHEPHERD_CONFIG } from "./config.js";
 import { distance } from "./utils.js";
+import { getVillagerProfession } from "./professionHelper.js";
 import { 
     equipShears, 
     unequipShears, 
@@ -52,28 +53,13 @@ export class ShepherdManager {
     isShepherdVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
-        // Exclude other custom professions
-        try {
-            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:fisherman") || entity.hasTag("rpc:farmer") || entity.hasTag("rpc:weaponsmith") || entity.hasTag("rpc:cleric") || entity.hasTag("rpc:armorer") || entity.hasTag("rpc:librarian")) {
-                return false;
-            }
-        } catch {}
-
-        try {
-            if (entity.matches({ families: ["shepherd"] })) return true;
-        } catch {}
+        const liveProf = getVillagerProfession(entity);
+        if (liveProf !== null) {
+            return liveProf === "shepherd";
+        }
 
         try {
             if (entity.hasTag("rpc:shepherd") || entity.hasTag("shepherd")) return true;
-        } catch {}
-
-        try {
-            if (entity.nameTag && entity.nameTag.toLowerCase().includes("shepherd")) return true;
-        } catch {}
-
-        try {
-            const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && variantComp.value === 3) return true;
         } catch {}
 
         return false;
@@ -162,6 +148,7 @@ export class ShepherdManager {
             // Handle despawned, unloaded, or changed entities
             if (!villager || !villager.isValid() || !this.isShepherdVillager(villager)) {
                 if (villager && villager.isValid()) {
+                    try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
                     unequipShears(villager);
                 }
                 this.records.delete(id);
@@ -170,6 +157,7 @@ export class ShepherdManager {
 
             // NIGHTTIME CHECK: Put away shears and sleep
             if (isNight && record.state !== ShepherdState.SLEEPING) {
+                try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
                 unequipShears(villager);
                 try {
                     villager.triggerEvent("minecraft:schedule_bed_villager");
@@ -197,7 +185,7 @@ export class ShepherdManager {
                 // Wait for sunrise
                 if (!isNight) {
                     try {
-                        villager.triggerEvent("minecraft:schedule_work");
+                        villager.triggerEvent("minecraft:schedule_wander_villager");
                     } catch {}
                     equipShears(villager);
                     record.state = ShepherdState.IDLE;
@@ -225,6 +213,9 @@ export class ShepherdManager {
                         } else {
                             record.state = ShepherdState.APPROACHING;
                             record.timer = 120; // Max 6 seconds pursuing this sheep
+                            try {
+                                villager.triggerEvent("rpc:start_approach_sheep");
+                            } catch {}
                         }
                     }
                 }
@@ -236,6 +227,9 @@ export class ShepherdManager {
 
                 // Target sheep became invalid or already sheared
                 if (!record.targetSheep || !record.targetSheep.isValid() || !isShearableSheep(record.targetSheep)) {
+                    try {
+                        villager.triggerEvent("rpc:stop_approach_sheep");
+                    } catch {}
                     record.state = ShepherdState.IDLE;
                     record.targetSheep = null;
                     record.timer = 10;
@@ -245,13 +239,22 @@ export class ShepherdManager {
                 // Check distance: shepherd moves using native follow_mob behavior
                 const dist = distance(villager.location, record.targetSheep.location);
                 if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                    try {
+                        villager.triggerEvent("rpc:stop_approach_sheep");
+                    } catch {}
                     record.state = ShepherdState.SHEARING;
                     record.timer = SHEPHERD_CONFIG.SHEAR_ANIMATION_TICKS;
                 } else if (record.timer <= 0) {
                     // Timeout approaching this sheep, pick new sheep or idle
+                    try {
+                        villager.triggerEvent("rpc:stop_approach_sheep");
+                    } catch {}
                     record.state = ShepherdState.IDLE;
                     record.targetSheep = null;
                     record.timer = 20;
+                    try {
+                        villager.triggerEvent("minecraft:schedule_wander_villager");
+                    } catch {}
                 }
                 break;
             }
@@ -276,6 +279,9 @@ export class ShepherdManager {
                 if (record.timer <= 0) {
                     record.state = ShepherdState.IDLE;
                     record.timer = 10;
+                    try {
+                        villager.triggerEvent("minecraft:schedule_wander_villager");
+                    } catch {}
                 }
                 break;
             }

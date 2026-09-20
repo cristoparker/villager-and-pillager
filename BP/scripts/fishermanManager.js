@@ -9,7 +9,9 @@ import { world, EquipmentSlot } from "@minecraft/server";
 import { SCAN_CONFIG, FISHING_CONFIG } from "./config.js";
 import { findBestFishingSpot, isWaterNear } from "./waterScanner.js";
 import { checkNavigationProgress } from "./pathfinder.js";
-import { startFishing, tickFishing, cleanupSession } from "./fishingBehavior.js";
+import { startFishing, tickFishing, cleanupSession, equipFishingRod, unequipFishingRod } from "./fishingBehavior.js";
+import { getLookRotation } from "./utils.js";
+import { getVillagerProfession } from "./professionHelper.js";
 
 export const FishermanState = {
     IDLE: "IDLE",
@@ -44,42 +46,13 @@ export class FishermanManager {
     isFishermanVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
-        // Exclude other custom professions
-        try {
-            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:shepherd") || entity.hasTag("rpc:farmer") || entity.hasTag("rpc:weaponsmith") || entity.hasTag("rpc:cleric") || entity.hasTag("rpc:armorer") || entity.hasTag("rpc:librarian")) {
-                return false;
-            }
-        } catch {}
-
-        try {
-            if (entity.matches({ families: ["fisherman"] })) {
-                return true;
-            }
-        } catch {}
+        const liveProf = getVillagerProfession(entity);
+        if (liveProf !== null) {
+            return liveProf === "fisherman";
+        }
 
         try {
             if (entity.hasTag("rpc:fisherman") || entity.hasTag("fisherman")) {
-                return true;
-            }
-        } catch {}
-
-        try {
-            if (entity.nameTag && entity.nameTag.toLowerCase().includes("fisherman")) {
-                return true;
-            }
-        } catch {}
-
-        try {
-            const equippable = entity.getComponent("minecraft:equippable");
-            const mainhand = equippable?.getEquipment("Mainhand");
-            if (mainhand && mainhand.typeId === "rpc:fishing_rod") {
-                return true;
-            }
-        } catch {}
-
-        try {
-            const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && variantComp.value === 2) {
                 return true;
             }
         } catch {}
@@ -127,11 +100,13 @@ export class FishermanManager {
     registerFisherman(villager) {
         if (!villager || this.records.has(villager.id)) return;
 
+        equipFishingRod(villager);
+
         this.records.set(villager.id, {
             state: FishermanState.IDLE,
             villager: villager,
             spot: null,
-            timer: 40,
+            timer: 30,
             fishingSession: null,
             navState: { lastPos: null, stuckTicks: 0, totalTicks: 0 }
         });
@@ -159,10 +134,7 @@ export class FishermanManager {
                     cleanupSession(record.fishingSession);
                 }
                 if (villager && villager.isValid()) {
-                    try {
-                        const equippable = villager.getComponent("minecraft:equippable");
-                        equippable?.setEquipment(EquipmentSlot.Mainhand, undefined);
-                    } catch {}
+                    unequipFishingRod(villager);
                 }
                 this.records.delete(id);
                 continue;
@@ -178,10 +150,7 @@ export class FishermanManager {
                     villager.triggerEvent("rpc:stop_fishing");
                     villager.triggerEvent("minecraft:schedule_bed_villager");
                 } catch {}
-                try {
-                    const equippable = villager.getComponent("minecraft:equippable");
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, undefined);
-                } catch {}
+                unequipFishingRod(villager);
 
                 record.state = FishermanState.SLEEPING;
                 record.spot = null;
@@ -206,13 +175,15 @@ export class FishermanManager {
                     try {
                         villager.triggerEvent("minecraft:schedule_work_fisher");
                     } catch {}
+                    equipFishingRod(villager);
                     record.state = FishermanState.IDLE;
-                    record.timer = 50; // Give villager 2.5 seconds to get out of bed
+                    record.timer = 40; // Give villager 2 seconds to get out of bed
                 }
                 break;
             }
 
             case FishermanState.IDLE: {
+                equipFishingRod(villager);
                 record.timer--;
                 if (record.timer <= 0) {
                     record.timer = SCAN_CONFIG.SEARCH_INTERVAL_TICKS;
@@ -240,6 +211,20 @@ export class FishermanManager {
             }
 
             case FishermanState.NAVIGATING: {
+                equipFishingRod(villager);
+
+                // Smooth impulse navigation towards fishing shore spot
+                if (record.spot && record.spot.standPos) {
+                    try {
+                        const rot = getLookRotation(villager.location, record.spot.standPos);
+                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        const dx = record.spot.standPos.x - villager.location.x;
+                        const dz = record.spot.standPos.z - villager.location.z;
+                        const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                        villager.applyImpulse({ x: (dx / len) * 0.16, y: 0, z: (dz / len) * 0.16 });
+                    } catch {}
+                }
+
                 // Check if villager arrived at the shoreline
                 const result = checkNavigationProgress(villager, record.spot, record.navState);
                 if (result.reached) {
@@ -278,6 +263,7 @@ export class FishermanManager {
             }
 
             case FishermanState.COOLDOWN: {
+                equipFishingRod(villager);
                 record.timer--;
                 if (record.timer <= 0) {
                     record.state = FishermanState.IDLE;

@@ -7,14 +7,19 @@
 
 import { world } from "@minecraft/server";
 import { LIBRARIAN_CONFIG } from "./config.js";
-import { distance } from "./utils.js";
+import { distance, getLookRotation } from "./utils.js";
+import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipBook,
     unequipBook,
     findNearbyLectern,
     isMonsterThreatNearby,
     performStudy,
-    performInspirationBuff
+    performInspirationBuff,
+    findNearbySugarcanePlantingSpot,
+    performPlantSugarcane,
+    findGrownSugarcane,
+    performHarvestSugarcane
 } from "./librarianBehavior.js";
 
 export const LibrarianState = {
@@ -22,13 +27,17 @@ export const LibrarianState = {
     INSPIRING: "INSPIRING",
     APPROACHING_LECTERN: "APPROACHING_LECTERN",
     STUDYING: "STUDYING",
+    APPROACHING_SUGARCANE_SPOT: "APPROACHING_SUGARCANE_SPOT",
+    PLANTING_SUGARCANE: "PLANTING_SUGARCANE",
+    APPROACHING_GROWN_SUGARCANE: "APPROACHING_GROWN_SUGARCANE",
+    HARVESTING_SUGARCANE: "HARVESTING_SUGARCANE",
     COOLDOWN: "COOLDOWN",
     SLEEPING: "SLEEPING"
 };
 
 export class LibrarianManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, lectern: any, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, lectern: any, sugarcaneSpot: any, grownSugarcane: any, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -53,27 +62,13 @@ export class LibrarianManager {
     isLibrarianVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
-        try {
-            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:fisherman") || entity.hasTag("rpc:shepherd") || entity.hasTag("rpc:farmer") || entity.hasTag("rpc:weaponsmith") || entity.hasTag("rpc:cleric") || entity.hasTag("rpc:armorer")) {
-                return false;
-            }
-        } catch {}
-
-        try {
-            if (entity.matches({ families: ["librarian"] })) return true;
-        } catch {}
+        const liveProf = getVillagerProfession(entity);
+        if (liveProf !== null) {
+            return liveProf === "librarian";
+        }
 
         try {
             if (entity.hasTag("rpc:librarian") || entity.hasTag("librarian")) return true;
-        } catch {}
-
-        try {
-            if (entity.nameTag && entity.nameTag.toLowerCase().includes("librar")) return true;
-        } catch {}
-
-        try {
-            const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && variantComp.value === 5) return true;
         } catch {}
 
         return false;
@@ -117,6 +112,8 @@ export class LibrarianManager {
             state: LibrarianState.IDLE,
             villager: villager,
             lectern: null,
+            sugarcaneSpot: null,
+            grownSugarcane: null,
             timer: 20
         });
     }
@@ -203,7 +200,39 @@ export class LibrarianManager {
                         break;
                     }
 
-                    // 2. Study at Lectern
+                    // 2. High priority: Check for grown sugarcane (height >= 2) to harvest for paper!
+                    const grown = findGrownSugarcane(villager.dimension, villager.location, LIBRARIAN_CONFIG.SUGARCANE_SEARCH_RADIUS);
+                    if (grown) {
+                        record.grownSugarcane = grown;
+                        const dist = distance(villager.location, grown.pos);
+                        if (dist <= LIBRARIAN_CONFIG.HARVEST_DISTANCE) {
+                            record.state = LibrarianState.HARVESTING_SUGARCANE;
+                            record.timer = 20;
+                        } else {
+                            record.state = LibrarianState.APPROACHING_GROWN_SUGARCANE;
+                            record.timer = 90;
+                        }
+                        break;
+                    }
+
+                    // 3. Plant sugarcane on water-connected blocks (35% chance)
+                    if (Math.random() < 0.35) {
+                        const spot = findNearbySugarcanePlantingSpot(villager.dimension, villager.location, LIBRARIAN_CONFIG.SUGARCANE_SEARCH_RADIUS);
+                        if (spot) {
+                            record.sugarcaneSpot = spot;
+                            const dist = distance(villager.location, spot.airPos);
+                            if (dist <= LIBRARIAN_CONFIG.PLANT_DISTANCE) {
+                                record.state = LibrarianState.PLANTING_SUGARCANE;
+                                record.timer = 22;
+                            } else {
+                                record.state = LibrarianState.APPROACHING_SUGARCANE_SPOT;
+                                record.timer = 90;
+                            }
+                            break;
+                        }
+                    }
+
+                    // 4. Study at Lectern (35% chance)
                     if (Math.random() < 0.35) {
                         const lectern = findNearbyLectern(villager.dimension, villager.location, LIBRARIAN_CONFIG.LECTERN_SEARCH_RADIUS);
                         if (lectern) {
@@ -233,9 +262,77 @@ export class LibrarianManager {
                 break;
             }
 
+            case LibrarianState.APPROACHING_GROWN_SUGARCANE: {
+                record.timer--;
+                if (!record.grownSugarcane) {
+                    record.state = LibrarianState.IDLE;
+                    break;
+                }
+
+                const dist = distance(villager.location, record.grownSugarcane.pos);
+                if (dist <= LIBRARIAN_CONFIG.HARVEST_DISTANCE) {
+                    record.state = LibrarianState.HARVESTING_SUGARCANE;
+                    record.timer = 20;
+                } else if (record.timer <= 0) {
+                    if (dist <= 4.0) {
+                        record.state = LibrarianState.HARVESTING_SUGARCANE;
+                        record.timer = 20;
+                    } else {
+                        record.state = LibrarianState.IDLE;
+                        record.grownSugarcane = null;
+                        record.timer = 20;
+                    }
+                }
+                break;
+            }
+
+            case LibrarianState.HARVESTING_SUGARCANE: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.grownSugarcane) {
+                        performHarvestSugarcane(villager, record.grownSugarcane);
+                    }
+                    record.grownSugarcane = null;
+                    record.state = LibrarianState.COOLDOWN;
+                    record.timer = 40;
+                }
+                break;
+            }
+
+            case LibrarianState.APPROACHING_SUGARCANE_SPOT: {
+                record.timer--;
+                if (!record.sugarcaneSpot) {
+                    record.state = LibrarianState.IDLE;
+                    break;
+                }
+
+                const dist = distance(villager.location, record.sugarcaneSpot.airPos);
+                if (dist <= LIBRARIAN_CONFIG.PLANT_DISTANCE) {
+                    record.state = LibrarianState.PLANTING_SUGARCANE;
+                    record.timer = 22;
+                } else if (record.timer <= 0) {
+                    record.state = LibrarianState.IDLE;
+                    record.sugarcaneSpot = null;
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case LibrarianState.PLANTING_SUGARCANE: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.sugarcaneSpot) {
+                        performPlantSugarcane(villager, record.sugarcaneSpot.airPos);
+                    }
+                    record.sugarcaneSpot = null;
+                    record.state = LibrarianState.COOLDOWN;
+                    record.timer = 40;
+                }
+                break;
+            }
+
             case LibrarianState.APPROACHING_LECTERN: {
                 record.timer--;
-
                 if (!record.lectern) {
                     record.state = LibrarianState.IDLE;
                     break;

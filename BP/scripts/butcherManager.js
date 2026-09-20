@@ -18,6 +18,7 @@ import {
     loadSmoker 
 } from "./butcherBehavior.js";
 import { findNearbyMonsters } from "./fletcherBehavior.js";
+import { getVillagerProfession } from "./professionHelper.js";
 
 export const ButcherState = {
     IDLE: "IDLE",
@@ -57,29 +58,13 @@ export class ButcherManager {
     isButcherVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
-        // Exclude other custom professions
-        try {
-            if (entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:fisherman") || entity.hasTag("rpc:shepherd") || entity.hasTag("rpc:farmer") || entity.hasTag("rpc:weaponsmith") || entity.hasTag("rpc:cleric") || entity.hasTag("rpc:armorer") || entity.hasTag("rpc:librarian")) {
-                return false;
-            }
-        } catch {}
-
-        try {
-            if (entity.matches({ families: ["butcher"] })) return true;
-        } catch {}
+        const liveProf = getVillagerProfession(entity);
+        if (liveProf !== null) {
+            return liveProf === "butcher";
+        }
 
         try {
             if (entity.hasTag("rpc:butcher") || entity.hasTag("butcher")) return true;
-        } catch {}
-
-        try {
-            if (entity.nameTag && entity.nameTag.toLowerCase().includes("butcher")) return true;
-        } catch {}
-
-        try {
-            const variantComp = entity.getComponent("minecraft:variant");
-            // Variant 11 is strictly the Butcher profession in vanilla Bedrock
-            if (variantComp && variantComp.value === 11) return true;
         } catch {}
 
         return false;
@@ -163,6 +148,8 @@ export class ButcherManager {
             // Handle despawned, unloaded, or changed entities
             if (!villager || !villager.isValid() || !this.isButcherVillager(villager)) {
                 if (villager && villager.isValid()) {
+                    try { villager.triggerEvent("rpc:stop_butcher_hunt"); } catch {}
+                    try { villager.triggerEvent("rpc:stop_approach_smoker"); } catch {}
                     unequipAxe(villager);
                 }
                 this.records.delete(id);
@@ -171,6 +158,9 @@ export class ButcherManager {
 
             // NIGHTTIME CHECK: Put away weapon and sleep in bed
             if (isNight && record.state !== ButcherState.SLEEPING) {
+                try {
+                    villager.triggerEvent("rpc:stop_butcher_hunt");
+                } catch {}
                 try {
                     villager.triggerEvent("rpc:stop_approach_smoker");
                 } catch {}
@@ -254,6 +244,9 @@ export class ButcherManager {
                         } else {
                             record.state = ButcherState.HUNTING;
                             record.timer = 120; // 6 seconds to reach animal
+                            try {
+                                villager.triggerEvent("rpc:start_butcher_hunt");
+                            } catch {}
                         }
                     }
                 }
@@ -285,6 +278,9 @@ export class ButcherManager {
                 // Immediate monster interruption check
                 const hostile = findNearbyMonsters(villager.dimension, villager.location, 14);
                 if (hostile) {
+                    try {
+                        villager.triggerEvent("rpc:stop_butcher_hunt");
+                    } catch {}
                     record.state = ButcherState.COMBAT;
                     record.targetAnimal = null;
                     record.timer = 20;
@@ -295,22 +291,34 @@ export class ButcherManager {
 
                 // Target became invalid or died
                 if (!record.targetAnimal || !record.targetAnimal.isValid() || !isValidPrey(record.targetAnimal)) {
+                    try {
+                        villager.triggerEvent("rpc:stop_butcher_hunt");
+                    } catch {}
                     record.state = ButcherState.IDLE;
                     record.targetAnimal = null;
                     record.timer = 10;
                     break;
                 }
 
-                // Native follow_mob moves the butcher smoothly towards the pig/cow
+                // Native melee / follow_mob moves the butcher smoothly towards the pig/cow
                 const dist = distance(villager.location, record.targetAnimal.location);
                 if (dist <= BUTCHER_CONFIG.ATTACK_DISTANCE) {
+                    try {
+                        villager.triggerEvent("rpc:stop_butcher_hunt");
+                    } catch {}
                     record.state = ButcherState.SLAUGHTERING;
                     record.timer = BUTCHER_CONFIG.SLAUGHTER_ANIMATION_TICKS;
                 } else if (record.timer <= 0) {
                     // Timeout pursuing this animal
+                    try {
+                        villager.triggerEvent("rpc:stop_butcher_hunt");
+                    } catch {}
                     record.state = ButcherState.IDLE;
                     record.targetAnimal = null;
                     record.timer = 20;
+                    try {
+                        villager.triggerEvent("minecraft:schedule_wander_villager");
+                    } catch {}
                 }
                 break;
             }

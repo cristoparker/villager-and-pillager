@@ -23,6 +23,8 @@ import { WeaponsmithManager } from "./weaponsmithManager.js";
 import { ClericManager } from "./clericManager.js";
 import { ArmorerManager } from "./armorerManager.js";
 import { LibrarianManager } from "./librarianManager.js";
+import { summonAllVillagers } from "./summonHelper.js";
+import { synchronizeVillagerOccupation, clearAllProfessions, getVillagerProfession } from "./professionHelper.js";
 
 const fishermanManager = new FishermanManager();
 const shepherdManager = new ShepherdManager();
@@ -33,6 +35,18 @@ const weaponsmithManager = new WeaponsmithManager();
 const clericManager = new ClericManager();
 const armorerManager = new ArmorerManager();
 const librarianManager = new LibrarianManager();
+
+export const allManagers = {
+    fishermanManager,
+    shepherdManager,
+    butcherManager,
+    fletcherManager,
+    farmerManager,
+    weaponsmithManager,
+    clericManager,
+    armorerManager,
+    librarianManager
+};
 
 // Central game tick loop
 system.runInterval(() => {
@@ -54,6 +68,7 @@ world.afterEvents.entitySpawn.subscribe((event) => {
         if (entity && entity.isValid() && (entity.typeId === "minecraft:villager_v2" || entity.typeId === "minecraft:villager")) {
             system.runTimeout(() => {
                 if (!entity || !entity.isValid()) return;
+                synchronizeVillagerOccupation(entity, allManagers);
                 fishermanManager.onEntitySpawn(entity);
                 shepherdManager.onEntitySpawn(entity);
                 butcherManager.onEntitySpawn(entity);
@@ -68,7 +83,10 @@ world.afterEvents.entitySpawn.subscribe((event) => {
     } catch {}
 });
 
-// Periodic cleanup: ensure no villager holds a weapon or tool from another profession
+// Dynamic Profession & Occupation Synchronization Loop
+// Runs every 15 ticks across all loaded dimensions:
+// Automatically detects when a villager claims a workstation, changes workstation, or loses their job!
+// Dynamically updates their held tools, name tags, custom tags, and active AI manager.
 system.runInterval(() => {
     try {
         const dimensions = ["overworld", "nether", "the_end"];
@@ -87,74 +105,15 @@ system.runInterval(() => {
             } catch {}
 
             for (const villager of villagers) {
-            if (!villager || !villager.isValid()) continue;
-            const equippable = villager.getComponent("minecraft:equippable");
-            const item = equippable?.getEquipment("Mainhand");
-            if (!item) continue;
-
-            const isButcher = butcherManager.isButcherVillager(villager);
-            const isFletcher = fletcherManager.isFletcherVillager(villager);
-            const isFisherman = fishermanManager.isFishermanVillager(villager);
-            const isShepherd = shepherdManager.isShepherdVillager(villager);
-            const isFarmer = farmerManager.isFarmerVillager(villager);
-            const isWeaponsmith = weaponsmithManager.isWeaponsmithVillager(villager);
-            const isCleric = clericManager.isClericVillager(villager);
-            const isArmorer = armorerManager.isArmorerVillager(villager);
-            const isLibrarian = librarianManager.isLibrarianVillager(villager);
-
-            const typeId = item.typeId;
-            if ((typeId === "minecraft:iron_axe" || typeId === "rpc:cleaver") && !isButcher) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if ((typeId === "minecraft:bow" || typeId === "minecraft:crossbow") && !isFletcher) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if (typeId === "rpc:fishing_rod" && !isFisherman) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if ((typeId === "minecraft:shears" || typeId === "rpc:shears") && !isShepherd) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if (typeId === "minecraft:iron_hoe" && !isFarmer) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if (typeId === "minecraft:iron_sword" && !isWeaponsmith) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if ((typeId === "minecraft:splash_potion" || typeId === "minecraft:potion") && !isCleric) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if (typeId === "minecraft:iron_ingot" && !isArmorer) {
-                equippable.setEquipment("Mainhand", undefined);
-            } else if ((typeId === "minecraft:enchanted_book" || typeId === "minecraft:book") && !isLibrarian) {
-                equippable.setEquipment("Mainhand", undefined);
+                if (villager && villager.isValid()) {
+                    synchronizeVillagerOccupation(villager, allManagers);
+                }
             }
         }
+    } catch (err) {
+        console.error(`[Villager Addon] Error in occupation sync loop: ${err}`);
     }
-} catch {}
-}, 60);
-
-function clearAllProfessions(target) {
-    const profs = ["fisherman", "shepherd", "butcher", "fletcher", "farmer", "weaponsmith", "cleric", "armorer", "librarian"];
-    for (const p of profs) {
-        target.removeTag(`rpc:${p}`);
-        target.removeTag(p);
-    }
-    try { target.triggerEvent("rpc:stop_fishing"); } catch {}
-    if (fishermanManager.records.has(target.id)) {
-        const rec = fishermanManager.records.get(target.id);
-        if (rec && rec.fishingSession) {
-            try { rec.fishingSession.bobber?.remove(); } catch {}
-        }
-        fishermanManager.records.delete(target.id);
-    }
-    shepherdManager.records.delete(target.id);
-    butcherManager.records.delete(target.id);
-    fletcherManager.records.delete(target.id);
-    farmerManager.records.delete(target.id);
-    weaponsmithManager.records.delete(target.id);
-    clericManager.records.delete(target.id);
-    armorerManager.records.delete(target.id);
-    librarianManager.records.delete(target.id);
-
-    try {
-        const equippable = target.getComponent("minecraft:equippable");
-        equippable?.setEquipment("Mainhand", undefined);
-    } catch {}
-}
+}, 15);
 
 // Allow player interactions to convert villagers into smart professions
 world.afterEvents.playerInteractWithEntity.subscribe((event) => {
@@ -172,7 +131,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
 
             // 1. Turn into Fisherman
             if (held === "rpc:fishing_rod") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("rpc:become_fisherman");
                 target.triggerEvent("minecraft:become_fisherman");
                 target.addTag("rpc:fisherman");
@@ -181,7 +140,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 2. Turn into Shepherd
             else if (held === "rpc:shears" || held === "minecraft:shears") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("rpc:become_shepherd");
                 target.triggerEvent("minecraft:become_sheperd");
                 target.addTag("rpc:shepherd");
@@ -190,7 +149,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 3. Turn into Butcher
             else if (held === "rpc:cleaver" || held === "minecraft:iron_axe") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("rpc:become_butcher");
                 target.triggerEvent("minecraft:become_butcher");
                 target.addTag("rpc:butcher");
@@ -199,7 +158,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 4. Turn into Fletcher (Bow or Crossbow)
             else if (held === "minecraft:bow" || held === "minecraft:crossbow") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("rpc:become_fletcher");
                 target.triggerEvent("minecraft:become_fletcher");
                 target.addTag("rpc:fletcher");
@@ -208,7 +167,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 5. Turn into Farmer (Iron Hoe)
             else if (held === "minecraft:iron_hoe") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("minecraft:become_farmer");
                 target.addTag("rpc:farmer");
                 target.addTag("farmer");
@@ -216,7 +175,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 6. Turn into Weaponsmith (Iron Sword)
             else if (held === "minecraft:iron_sword") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("minecraft:become_weaponsmith");
                 target.addTag("rpc:weaponsmith");
                 target.addTag("weaponsmith");
@@ -224,7 +183,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 7. Turn into Cleric (Potion or Splash Potion)
             else if (held === "minecraft:potion" || held === "minecraft:splash_potion") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("minecraft:become_cleric");
                 target.addTag("rpc:cleric");
                 target.addTag("cleric");
@@ -232,7 +191,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 8. Turn into Armorer (Iron Ingot or Chestplate)
             else if (held === "minecraft:iron_ingot" || held === "minecraft:iron_chestplate") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("minecraft:become_armorer");
                 target.addTag("rpc:armorer");
                 target.addTag("armorer");
@@ -240,12 +199,45 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             }
             // 9. Turn into Librarian (Book or Enchanted Book)
             else if (held === "minecraft:book" || held === "minecraft:enchanted_book") {
-                clearAllProfessions(target);
+                clearAllProfessions(target, allManagers);
                 target.triggerEvent("minecraft:become_librarian");
                 target.addTag("rpc:librarian");
                 target.addTag("librarian");
                 librarianManager.registerLibrarian(target);
             }
+        }
+    } catch {}
+});
+
+// Custom command /function summon_all or /scriptevent rpc:summon_all
+system.afterEvents.scriptEventReceive.subscribe((event) => {
+    try {
+        if (event.id === "rpc:summon_all" || event.id === "rpc:summon_villagers" || event.id === "rpc:summon") {
+            const player = event.sourceEntity;
+            if (player && player.isValid()) {
+                summonAllVillagers(player, allManagers);
+            } else {
+                const players = world.getAllPlayers();
+                if (players && players.length > 0) {
+                    summonAllVillagers(players[0], allManagers);
+                }
+            }
+        }
+    } catch (e) {
+        console.error(`[Villager Addon] Error handling summon script event: ${e}`);
+    }
+});
+
+// Chat shortcut: type !summonall or !villagers in chat to summon every villager profession!
+world.beforeEvents.chatSend.subscribe((event) => {
+    try {
+        const msg = event.message.trim().toLowerCase();
+        if (msg === "!summonall" || msg === "!villagers" || msg === "!summon_villagers" || msg === "!summon") {
+            event.cancel = true;
+            const player = event.sender;
+            system.run(() => {
+                summonAllVillagers(player, allManagers);
+            });
         }
     } catch {}
 });

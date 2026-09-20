@@ -29,7 +29,9 @@
               "minecraft:iron_ingot",
               "minecraft:map",
               "minecraft:stone_brick",
-              "minecraft:leather"
+              "minecraft:leather",
+              "minecraft:bone_meal",
+              "minecraft:sugar_cane"
             ]
           }
         ]
@@ -265,7 +267,6 @@
       },
       "minecraft:movement.basic": {},
       "minecraft:nameable": {},
-      "minecraft:equippable": {},
       "minecraft:navigation.walk": {
         "avoid_water": false,
         "can_open_doors": true,
@@ -321,6 +322,45 @@
             "minecraft:smoker",
             "minecraft:lit_smoker"
           ]
+        }
+      },
+      "rpc:shepherd_approach_sheep": {
+        "minecraft:behavior.follow_mob": {
+          "priority": 3,
+          "speed_multiplier": 0.9,
+          "search_range": 32,
+          "stop_distance": 1.8,
+          "filters": {
+            "all_of": [
+              { "test": "is_family", "subject": "other", "value": "sheep" },
+              { "test": "has_tag", "subject": "other", "operator": "!=", "value": "rpc:shepherd_sheep" }
+            ]
+          }
+        }
+      },
+      "rpc:butcher_hunt_prey": {
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 2,
+          "must_see": false,
+          "reselect_targets": true,
+          "within_radius": 24.0,
+          "entity_types": [
+            {
+              "filters": {
+                "any_of": [
+                  { "test": "is_family", "subject": "other", "value": "cow" },
+                  { "test": "is_family", "subject": "other", "value": "pig" }
+                ]
+              },
+              "max_dist": 24.0
+            }
+          ]
+        },
+        "minecraft:behavior.melee_attack": {
+          "priority": 2,
+          "speed_multiplier": 1.15,
+          "track_target": true,
+          "reach_multiplier": 1.5
         }
       },
       "adult": {
@@ -1128,8 +1168,7 @@
           "priority": 4,
           "speed_multiplier": 0.85,
           "search_range": 28,
-          "stop_distance": 2.0,
-          "preferred_actor_type": "minecraft:cow",
+          "stop_distance": 1.8,
           "filters": {
             "any_of": [
               { "test": "is_family", "subject": "other", "value": "pig" },
@@ -1138,10 +1177,10 @@
           }
         },
         "minecraft:behavior.random_stroll": {
-          "priority": 8,
-          "speed_multiplier": 0.65,
-          "interval": 40,
-          "xz_dist": 14,
+          "priority": 6,
+          "speed_multiplier": 0.7,
+          "interval": 20,
+          "xz_dist": 16,
           "y_dist": 5
         },
         "minecraft:equipment": {
@@ -1439,6 +1478,44 @@
         },
         "minecraft:loot": {
           "table": "loot_tables/entities/villager_farmer.json"
+        },
+        "minecraft:attack": {
+          "damage": 5
+        },
+        "minecraft:behavior.hurt_by_target": {
+          "priority": 1
+        },
+        "minecraft:behavior.melee_attack": {
+          "priority": 3,
+          "speed_multiplier": 1.15,
+          "track_target": true,
+          "reach_multiplier": 1.5
+        },
+        "minecraft:behavior.nearest_attackable_target": {
+          "priority": 2,
+          "must_see": true,
+          "reselect_targets": true,
+          "within_radius": 16.0,
+          "entity_types": [
+            {
+              "filters": {
+                "any_of": [
+                  { "test": "is_family", "subject": "other", "value": "monster" },
+                  { "test": "is_family", "subject": "other", "value": "zombie" },
+                  { "test": "is_family", "subject": "other", "value": "undead" },
+                  { "test": "is_family", "subject": "other", "value": "skeleton" },
+                  { "test": "is_family", "subject": "other", "value": "spider" },
+                  { "test": "is_family", "subject": "other", "value": "creeper" },
+                  { "test": "is_family", "subject": "other", "value": "illager" }
+                ]
+              },
+              "max_dist": 16.0
+            }
+          ]
+        },
+        "minecraft:behavior.avoid_mob_type": {
+          "priority": 10,
+          "entity_types": []
         }
       },
       "work_schedule_farmer": {
@@ -2494,12 +2571,12 @@
         "minecraft:variant": {
           "value": 3
         },
-        "minecraft:behavior.follow_mob": {
-          "priority": 4,
-          "speed_multiplier": 0.75,
-          "search_range": 24,
-          "stop_distance": 1.8,
-          "preferred_actor_type": "minecraft:sheep"
+        "minecraft:behavior.random_stroll": {
+          "priority": 6,
+          "speed_multiplier": 0.7,
+          "interval": 20,
+          "xz_dist": 16,
+          "y_dist": 5
         },
         "minecraft:equipment": {
           "slot_drop_chance": [
@@ -2688,6 +2765,34 @@
         "remove": {
           "component_groups": [
             "rpc:approach_smoker"
+          ]
+        }
+      },
+      "rpc:start_approach_sheep": {
+        "add": {
+          "component_groups": [
+            "rpc:shepherd_approach_sheep"
+          ]
+        }
+      },
+      "rpc:stop_approach_sheep": {
+        "remove": {
+          "component_groups": [
+            "rpc:shepherd_approach_sheep"
+          ]
+        }
+      },
+      "rpc:start_butcher_hunt": {
+        "add": {
+          "component_groups": [
+            "rpc:butcher_hunt_prey"
+          ]
+        }
+      },
+      "rpc:stop_butcher_hunt": {
+        "remove": {
+          "component_groups": [
+            "rpc:butcher_hunt_prey"
           ]
         }
       },
@@ -2992,7 +3097,7 @@
             "adult",
             "make_and_receive_love",
             "behavior_non_peasant",
-            "work_schedule"
+            "basic_schedule"
           ]
         },
         "remove": {
@@ -3004,7 +3109,8 @@
             "fisherman",
             "butcher",
             "fisher_schedule",
-            "rpc:fishing_mode"
+            "rpc:fishing_mode",
+            "work_schedule"
           ]
         }
       },
@@ -3697,7 +3803,7 @@
             "adult",
             "make_and_receive_love",
             "behavior_non_peasant",
-            "work_schedule"
+            "basic_schedule"
           ]
         },
         "remove": {
@@ -3705,7 +3811,8 @@
             "baby",
             "child_schedule",
             "job_specific_goals",
-            "trade_components"
+            "trade_components",
+            "work_schedule"
           ]
         }
       },

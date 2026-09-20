@@ -310,3 +310,97 @@ export function shootArrowAtBlock(villager, targetBlockPos, isCrossbow = false) 
 
     return true;
 }
+
+/**
+ * Shoots an arrow at a threatening monster in combat, dealing authentic ranged damage.
+ * @param {Entity} villager 
+ * @param {Entity} monster 
+ * @param {boolean} isCrossbow 
+ * @returns {boolean}
+ */
+export function shootArrowAtMonster(villager, monster, isCrossbow = false) {
+    if (!villager || !villager.isValid() || !monster || !monster.isValid()) return false;
+
+    const dim = villager.dimension;
+    const vLoc = villager.location;
+    const mLoc = monster.location;
+
+    // 1. Face the monster
+    try {
+        const rot = getLookRotation(vLoc, mLoc);
+        villager.teleport(vLoc, { rotation: { x: rot.x * 0.4, y: rot.y } });
+    } catch {}
+
+    // 2. Aim animation
+    try {
+        villager.playAnimation("animation.villager.raise_arms");
+    } catch {}
+
+    // 3. Projectile spawn position
+    const rad = (villager.getRotation().y * Math.PI) / 180.0;
+    const forwardX = -Math.sin(rad) * 0.6;
+    const forwardZ = Math.cos(rad) * 0.6;
+    const spawnPos = {
+        x: vLoc.x + forwardX,
+        y: vLoc.y + 1.4,
+        z: vLoc.z + forwardZ
+    };
+
+    // Target monster's chest
+    const targetChest = {
+        x: mLoc.x + (Math.random() - 0.5) * 0.2,
+        y: mLoc.y + 0.9,
+        z: mLoc.z + (Math.random() - 0.5) * 0.2
+    };
+
+    const dirX = targetChest.x - spawnPos.x;
+    const dirY = targetChest.y - spawnPos.y;
+    const dirZ = targetChest.z - spawnPos.z;
+    const dist = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ) || 1.0;
+
+    const speed = FLETCHER_CONFIG.ARROW_SPEED || 2.2;
+    const arcComp = dist * 0.035;
+    const velX = (dirX / dist) * speed;
+    const velY = ((dirY + arcComp) / dist) * speed;
+    const velZ = (dirZ / dist) * speed;
+
+    // 4. Spawn projectile
+    try {
+        const arrow = dim.spawnEntity(FLETCHER_CONFIG.ARROW_ITEM_ID, spawnPos);
+        if (arrow && arrow.isValid()) {
+            try {
+                const proj = arrow.getComponent("minecraft:projectile");
+                if (proj && typeof proj.shoot === "function") {
+                    proj.shoot({ x: velX, y: velY, z: velZ }, { uncertainty: 0.3 });
+                } else {
+                    arrow.applyImpulse({ x: velX, y: velY, z: velZ });
+                }
+            } catch {
+                arrow.applyImpulse({ x: velX, y: velY, z: velZ });
+            }
+        }
+    } catch (e) {
+        console.warn(`[Fletcher] Error spawning combat arrow: ${e}`);
+    }
+
+    // 5. Sound effects
+    if (isCrossbow) {
+        playSoundSafe(dim, "crossbow.shoot", spawnPos, { volume: 1.0, pitch: 1.0 });
+    } else {
+        playSoundSafe(dim, "random.bow", spawnPos, { volume: 1.0, pitch: 1.0 });
+    }
+
+    // 6. Direct damage application as reliable hit guarantee
+    const damage = isCrossbow ? 9 : 6;
+    try {
+        monster.applyDamage(damage, { damagingEntity: villager });
+        playSoundSafe(dim, "damage.hit", mLoc, { volume: 0.8, pitch: 1.1 });
+        spawnParticleSafe(dim, "minecraft:crit", { x: mLoc.x, y: mLoc.y + 1.0, z: mLoc.z });
+    } catch {
+        try {
+            villager.runCommandAsync(`damage @e[type=!villager,type=!villager_v2,type=!player,c=1,r=20] ${damage} projectile entity @s`).catch(() => {});
+        } catch {}
+    }
+
+    return true;
+}

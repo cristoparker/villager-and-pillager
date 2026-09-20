@@ -166,7 +166,33 @@ export const FARMER_CONFIG = {
         { typeId: "minecraft:potatoes", maxGrowth: 7, loot: "minecraft:potato", seed: "minecraft:potato" },
         { typeId: "minecraft:beetroot", maxGrowth: 7, loot: "minecraft:beetroot", seed: "minecraft:beetroot_seeds" }
     ],
-    COMPOSTER_ID: "minecraft:composter"
+    COMPOSTER_ID: "minecraft:composter",
+    FLOWERS: [
+        "minecraft:dandelion",
+        "minecraft:poppy",
+        "minecraft:allium",
+        "minecraft:azure_bluet",
+        "minecraft:red_tulip",
+        "minecraft:orange_tulip",
+        "minecraft:white_tulip",
+        "minecraft:pink_tulip",
+        "minecraft:oxeye_daisy",
+        "minecraft:cornflower",
+        "minecraft:lily_of_the_valley"
+    ],
+    SAPLINGS: [
+        "minecraft:oak_sapling",
+        "minecraft:birch_sapling",
+        "minecraft:spruce_sapling",
+        "minecraft:cherry_sapling",
+        "minecraft:acacia_sapling"
+    ],
+    FLOWER_SEARCH_RADIUS: 12,
+    SAPLING_SEARCH_RADIUS: 14,
+    BONEMEAL_SEARCH_RADIUS: 12,
+    MONSTER_SEARCH_RADIUS: 14,
+    ATTACK_DISTANCE: 2.5,
+    ATTACK_DAMAGE: 6
 };
 
 export const WEAPONSMITH_CONFIG = {
@@ -182,11 +208,16 @@ export const WEAPONSMITH_CONFIG = {
 export const CLERIC_CONFIG = {
     SPLASH_POTION_ITEM_ID: "minecraft:splash_potion",
     POTION_ITEM_ID: "minecraft:potion",
-    ALLIED_SEARCH_RADIUS: 16,
-    HEAL_DISTANCE: 7.0,
-    HEAL_COOLDOWN_TICKS: 70,
+    ALLIED_SEARCH_RADIUS: 14,
+    HEAL_DISTANCE: 8.0,
+    HEAL_COOLDOWN_TICKS: 50,
     HEAL_ANIMATION_TICKS: 22,
-    BREWING_STAND_ID: "minecraft:brewing_stand"
+    BREWING_STAND_ID: "minecraft:brewing_stand",
+    RAID_SEARCH_RADIUS: 20,
+    OFFENSIVE_SEARCH_RADIUS: 14,
+    OFFENSIVE_THROW_DISTANCE: 12,
+    SELF_REGEN_HEALTH_THRESHOLD: 0.8,
+    POTION_COOLDOWN_TICKS: 40
 };
 
 export const ARMORER_CONFIG = {
@@ -205,6 +236,12 @@ export const LIBRARIAN_CONFIG = {
     LECTERN_STUDY_DISTANCE: 2.2,
     STUDY_ANIMATION_TICKS: 40,
     INSPIRATION_RADIUS: 12,
-    COOLDOWN_TICKS: 90
+    COOLDOWN_TICKS: 90,
+    SUGARCANE_SEARCH_RADIUS: 16,
+    SUGARCANE_BLOCK_ID: "minecraft:reeds",
+    SUGARCANE_ITEM_ID: "minecraft:sugar_cane",
+    HARVEST_DISTANCE: 2.5,
+    PLANT_DISTANCE: 2.5
 };
+
 

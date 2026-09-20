@@ -7,18 +7,26 @@
 
 import { world } from "@minecraft/server";
 import { CLERIC_CONFIG } from "./config.js";
-import { distance } from "./utils.js";
+import { distance, getLookRotation } from "./utils.js";
+import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipPotion,
     unequipPotion,
     findNearbyInjuredAlly,
     findNearbyBrewingStand,
     performHeal,
-    performBrew
+    performBrew,
+    performWitcherRegen,
+    isRaidOrMonsterThreatNearby,
+    findNearbyPillagersAndMonsters,
+    performOffensiveSplashPotion
 } from "./clericBehavior.js";
 
 export const ClericState = {
     IDLE: "IDLE",
+    RAID_COMBAT: "RAID_COMBAT",
+    DRINKING_POTION: "DRINKING_POTION",
+    OFFENSIVE_SPLASH: "OFFENSIVE_SPLASH",
     APPROACHING_ALLY: "APPROACHING_ALLY",
     HEALING: "HEALING",
     APPROACHING_BREW: "APPROACHING_BREW",
@@ -29,7 +37,7 @@ export const ClericState = {
 
 export class ClericManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, targetAlly: Entity|null, brewingStand: any, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, targetAlly: Entity|null, targetEnemy: Entity|null, brewingStand: any, witcherCooldown: number, offensiveCooldown: number, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -54,27 +62,13 @@ export class ClericManager {
     isClericVillager(entity) {
         if (!entity || !entity.isValid()) return false;
 
-        try {
-            if (entity.hasTag("rpc:butcher") || entity.hasTag("rpc:fletcher") || entity.hasTag("rpc:fisherman") || entity.hasTag("rpc:shepherd") || entity.hasTag("rpc:farmer") || entity.hasTag("rpc:weaponsmith")) {
-                return false;
-            }
-        } catch {}
-
-        try {
-            if (entity.matches({ families: ["cleric", "priest"] })) return true;
-        } catch {}
+        const liveProf = getVillagerProfession(entity);
+        if (liveProf !== null) {
+            return liveProf === "cleric";
+        }
 
         try {
             if (entity.hasTag("rpc:cleric") || entity.hasTag("cleric")) return true;
-        } catch {}
-
-        try {
-            if (entity.nameTag && entity.nameTag.toLowerCase().includes("cleric")) return true;
-        } catch {}
-
-        try {
-            const variantComp = entity.getComponent("minecraft:variant");
-            if (variantComp && variantComp.value === 7) return true;
         } catch {}
 
         return false;
@@ -118,7 +112,10 @@ export class ClericManager {
             state: ClericState.IDLE,
             villager: villager,
             targetAlly: null,
+            targetEnemy: null,
             brewingStand: null,
+            witcherCooldown: 0,
+            offensiveCooldown: 0,
             timer: 20
         });
     }
@@ -180,6 +177,9 @@ export class ClericManager {
     updateCleric(record, isNight) {
         const { villager } = record;
 
+        if (record.witcherCooldown > 0) record.witcherCooldown--;
+        if (record.offensiveCooldown > 0) record.offensiveCooldown--;
+
         switch (record.state) {
             case ClericState.SLEEPING: {
                 if (!isNight) {
@@ -193,13 +193,84 @@ export class ClericManager {
                 break;
             }
 
+            case ClericState.DRINKING_POTION: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    performWitcherRegen(villager);
+                    record.witcherCooldown = 200; // 10s cooldown
+                    record.state = ClericState.COOLDOWN;
+                    record.timer = 20;
+                }
+                break;
+            }
+
+            case ClericState.OFFENSIVE_SPLASH: {
+                record.timer--;
+                if (record.timer <= 0) {
+                    if (record.targetEnemy && record.targetEnemy.isValid()) {
+                        performOffensiveSplashPotion(villager, record.targetEnemy);
+                    }
+                    record.targetEnemy = null;
+                    record.offensiveCooldown = CLERIC_CONFIG.POTION_COOLDOWN_TICKS || 40;
+                    record.state = ClericState.COOLDOWN;
+                    record.timer = 20;
+                }
+                break;
+            }
+
             case ClericState.IDLE: {
                 record.timer--;
                 if (record.timer <= 0) {
-                    record.timer = 25;
+                    record.timer = 20;
                     equipPotion(villager);
 
-                    // 1. Scan for injured allies
+                    // Check for Raid or Monster threats nearby
+                    const inDanger = isRaidOrMonsterThreatNearby(villager.dimension, villager.location, CLERIC_CONFIG.RAID_SEARCH_RADIUS);
+                    if (inDanger) {
+                        // 1. Self-preservation: Witcher-style potion drinking
+                        let shouldDrink = false;
+                        try {
+                            const health = villager.getComponent("minecraft:health");
+                            if (health && (health.currentValue / health.effectiveMax) <= CLERIC_CONFIG.SELF_REGEN_HEALTH_THRESHOLD) {
+                                shouldDrink = true;
+                            }
+                        } catch {}
+
+                        if ((shouldDrink || Math.random() < 0.25) && record.witcherCooldown <= 0) {
+                            record.state = ClericState.DRINKING_POTION;
+                            record.timer = 15;
+                            break;
+                        }
+
+                        // 2. Scan for injured allies strictly: villagers and player only
+                        const injured = findNearbyInjuredAlly(villager.dimension, villager.location, CLERIC_CONFIG.ALLIED_SEARCH_RADIUS);
+                        if (injured) {
+                            record.targetAlly = injured;
+                            const dist = distance(villager.location, injured.location);
+                            if (dist <= CLERIC_CONFIG.HEAL_DISTANCE) {
+                                record.state = ClericState.HEALING;
+                                record.timer = CLERIC_CONFIG.HEAL_ANIMATION_TICKS;
+                            } else {
+                                record.state = ClericState.APPROACHING_ALLY;
+                                record.timer = 60;
+                            }
+                            break;
+                        }
+
+                        // 3. Attack pillagers/monsters with offensive splash potions (slowness, poison, harming)
+                        if (record.offensiveCooldown <= 0) {
+                            const enemy = findNearbyPillagersAndMonsters(villager.dimension, villager.location, CLERIC_CONFIG.OFFENSIVE_SEARCH_RADIUS);
+                            if (enemy) {
+                                record.targetEnemy = enemy;
+                                record.state = ClericState.OFFENSIVE_SPLASH;
+                                record.timer = 12;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Peaceful routine
+                    // 1. Scan for injured allies (villager, player)
                     const injured = findNearbyInjuredAlly(villager.dimension, villager.location, CLERIC_CONFIG.ALLIED_SEARCH_RADIUS);
                     if (injured) {
                         record.targetAlly = injured;
@@ -237,6 +308,11 @@ export class ClericManager {
                     record.timer = 10;
                     break;
                 }
+
+                try {
+                    const rot = getLookRotation(villager.location, record.targetAlly.location);
+                    villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                } catch {}
 
                 const dist = distance(villager.location, record.targetAlly.location);
                 if (dist <= CLERIC_CONFIG.HEAL_DISTANCE) {

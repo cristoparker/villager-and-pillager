@@ -40,6 +40,51 @@ export function getRodTipPosition(villager) {
 }
 
 /**
+ * Equips fishing rod in the fisherman's main hand.
+ * @param {Entity} villager 
+ */
+export function equipFishingRod(villager) {
+    if (!villager || !villager.isValid()) return;
+
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        if (equippable) {
+            const current = equippable.getEquipment(EquipmentSlot.Mainhand);
+            if (current && (current.typeId === FISHING_CONFIG.FISHING_ROD_ITEM_ID || current.typeId === "minecraft:fishing_rod")) {
+                return;
+            }
+            try {
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(FISHING_CONFIG.FISHING_ROD_ITEM_ID, 1));
+                return;
+            } catch {
+                try {
+                    equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:fishing_rod", 1));
+                    return;
+                } catch {}
+            }
+        }
+    } catch {}
+
+    try {
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${FISHING_CONFIG.FISHING_ROD_ITEM_ID}`).catch(() => {
+            villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 minecraft:fishing_rod`).catch(() => {});
+        });
+    } catch {}
+}
+
+/**
+ * Unequips fishing rod from main hand.
+ * @param {Entity} villager 
+ */
+export function unequipFishingRod(villager) {
+    if (!villager || !villager.isValid()) return;
+    try {
+        const equippable = villager.getComponent("minecraft:equippable");
+        equippable?.setEquipment(EquipmentSlot.Mainhand, undefined);
+    } catch {}
+}
+
+/**
  * Starts the fishing sequence: equips rpc:fishing_rod item and throws hook with projectile velocity.
  */
 export function startFishing(villager, spot) {

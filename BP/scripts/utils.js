@@ -3,7 +3,32 @@
  * Math calculations, robust block detection, sound/particle helpers, and string rendering.
  */
 
+import { BlockPermutation } from "@minecraft/server";
 import { FISHING_CONFIG } from "./config.js";
+
+/**
+ * Safely sets a block's type or permutation with multiple fallbacks.
+ * @param {Block} block 
+ * @param {string} typeId 
+ */
+export function setBlockSafe(block, typeId) {
+    if (!block) return false;
+    try {
+        block.setPermutation(BlockPermutation.resolve(typeId));
+        return true;
+    } catch {}
+    try {
+        block.setType(typeId);
+        return true;
+    } catch {}
+    try {
+        const dim = block.dimension;
+        const loc = block.location;
+        dim.runCommandAsync(`setblock ${loc.x} ${loc.y} ${loc.z} ${typeId}`).catch(() => {});
+        return true;
+    } catch {}
+    return false;
+}
 
 /**
  * Calculates 3D Euclidean distance between two locations.
