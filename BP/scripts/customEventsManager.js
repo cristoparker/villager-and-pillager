@@ -1,9 +1,8 @@
 /**
  * Villager Professions Addon - Custom Events & Command Dispatcher Module (Namespace: rpc)
- * Allows players to trigger all villager custom features on-demand via:
- * 1. /scriptevent rpc:<command> [arguments]
- * 2. Chat commands: !<command> (e.g. !build_golem, !breed, !cure, !house, !bed, etc.)
- * 3. Entity tags / events: /event entity @e[type=villager_v2] rpc:<event>
+ * Allows players and creators to trigger all villager custom features on-demand via:
+ * 1. /scriptevent rpc:<command> [arguments] (from chat, command blocks, functions, or scripts)
+ * 2. Entity tags / events: /event entity @e[type=villager_v2] rpc:<event>
  */
 
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
@@ -364,7 +363,7 @@ export class CustomEventsManager {
             }
 
             default: {
-                this.notify(sourceEntity, `§e[Villager Addon] Unknown event: §f${commandName}§e. Type §a!help§e or §a!events§e for a list of commands!`);
+                this.notify(sourceEntity, `§e[Villager Addon] Unknown event: §f${commandName}§e. Use §a/scriptevent rpc:help§e for a list of commands!`);
                 break;
             }
         }
@@ -379,7 +378,7 @@ export class CustomEventsManager {
             : findNearestVillager(dim, origin, "armorer", 32);
 
         if (!armorer) {
-            this.notify(source, "§c[Armorer] No Armorer found within 32 blocks! Type §a!summon armorer §cor §a!summonall§c.");
+            this.notify(source, "§c[Armorer] No Armorer found within 32 blocks! Use §a/scriptevent rpc:summon armorer §cor §a/scriptevent rpc:summonall§c.");
             return;
         }
 
@@ -443,7 +442,7 @@ export class CustomEventsManager {
             : findNearestVillager(dim, origin, "farmer", 32);
 
         if (!farmer) {
-            this.notify(source, "§c[Farmer] No Farmer found within 32 blocks! Type §a!summon farmer§c.");
+            this.notify(source, "§c[Farmer] No Farmer found within 32 blocks! Use §a/scriptevent rpc:summon farmer§c.");
             return;
         }
 
@@ -886,46 +885,47 @@ export class CustomEventsManager {
      */
     printHelp(source) {
         const lines = [
-            "§6§l================ VILLAGER EVENT COMMANDS ================",
-            "§7Trigger via chat (§e!<cmd>§7), function (§e/function <cmd>§7), or script (§e/scriptevent rpc:<cmd>§7):",
+            "§6§l================ VILLAGER SCRIPT EVENTS ================",
+            "§7Trigger in chat or command blocks: §e/scriptevent rpc:<command>",
             "",
             "§6[ARMORER]§r",
-            "  §a!build_golem §7/ §a!golem §f- Build Iron Golem with iron blocks & pumpkin",
-            "  §a!repair_golem §f- Repair damaged Iron Golem with iron ingots",
-            "  §a!fortify §f- Bestow Resistance & Absorption armor buffs on allies",
+            "  §a/scriptevent rpc:build_golem §f- Build Iron Golem with iron blocks & pumpkin",
+            "  §a/scriptevent rpc:repair_golem §f- Repair damaged Iron Golem with iron ingots",
+            "  §a/scriptevent rpc:fortify §f- Bestow Resistance & Absorption armor buffs on allies",
             "",
             "§6[FARMER]§r",
-            "  §a!breed §f- Feed & breed nearby animals (cows, sheep, pigs, chickens)",
-            "  §a!feed_baby §f- Feed baby animals to accelerate their growth",
-            "  §a!harvest §f- Harvest ripe crops & replant seeds",
-            "  §a!plant §f- Plant crops on empty tilled farmland",
-            "  §a!bonemeal §f- Fertilize crops & saplings with bone meal",
-            "  §a!share_food §f- Distribute bread/wheat to hungry villagers",
+            "  §a/scriptevent rpc:breed §f- Feed & breed nearby animals (cows, sheep, pigs, chickens)",
+            "  §a/scriptevent rpc:feed_baby §f- Feed baby animals to accelerate their growth",
+            "  §a/scriptevent rpc:harvest §f- Harvest ripe crops & replant seeds",
+            "  §a/scriptevent rpc:plant §f- Plant crops on empty tilled farmland",
+            "  §a/scriptevent rpc:bonemeal §f- Fertilize crops & saplings with bone meal",
+            "  §a/scriptevent rpc:share_food §f- Distribute bread/wheat to hungry villagers",
             "",
             "§6[CLERIC]§r",
-            "  §d!cure §f- Cure nearby Zombie Villager with Golden Apple & Weakness",
-            "  §d!regen §f- Drink Witcher potion (Instant Health + Regen II + Resistance)",
-            "  §d!sanctuary §f- Cast Holy Sanctuary protective aura (repels monsters)",
-            "  §d!heal §f- Hurl healing splash potion at injured allies",
-            "  §d!brew §f- Brew and drop fresh potions at brewing stand",
+            "  §d/scriptevent rpc:cure §f- Cure nearby Zombie Villager with Golden Apple & Weakness",
+            "  §d/scriptevent rpc:regen §f- Drink Witcher potion (Instant Health + Regen II + Resistance)",
+            "  §d/scriptevent rpc:sanctuary §f- Cast Holy Sanctuary protective aura (repels monsters)",
+            "  §d/scriptevent rpc:heal §f- Hurl healing splash potion at injured allies",
+            "  §d/scriptevent rpc:brew §f- Brew and drop fresh potions at brewing stand",
             "",
             "§6[BUILDER & EXPANSION]§r",
-            "  §e!house §7/ §e!build_house §f- Build a 5x5 furnished house with bed & door",
-            "  §e!bed §f- Place a bed with 2 blocks headroom for breeding",
-            "  §e!workbench §f- Place a profession workstation",
-            "  §e!hay §f- Place a hay bale pile",
-            "  §e!chest §f- Place a community chest",
+            "  §e/scriptevent rpc:house §f- Build a 5x5 furnished house with bed & door",
+            "  §e/scriptevent rpc:bed §f- Place a bed with 2 blocks headroom for breeding",
+            "  §e/scriptevent rpc:workbench §f- Place a profession workstation",
+            "  §e/scriptevent rpc:hay §f- Place a hay bale pile",
+            "  §e/scriptevent rpc:chest §f- Place a community chest",
             "",
             "§6[SPECIALISTS]§r",
-            "  §b!fish §f- Fisherman catches fresh fish",
-            "  §e!shear §f- Shepherd shears nearby sheep",
-            "  §2!shoot §f- Fletcher fires arrows at hostile mobs",
-            "  §7!sharpen §f- Weaponsmith sharpens weapons at grindstone",
-            "  §3!enchant §f- Librarian bestows enchanting wisdom & XP",
+            "  §b/scriptevent rpc:fish §f- Fisherman catches fresh fish",
+            "  §e/scriptevent rpc:shear §f- Shepherd shears nearby sheep",
+            "  §2/scriptevent rpc:shoot §f- Fletcher fires arrows at hostile mobs",
+            "  §7/scriptevent rpc:sharpen §f- Weaponsmith sharpens weapons at grindstone",
+            "  §3/scriptevent rpc:enchant §f- Librarian bestows enchanting wisdom & XP",
             "",
             "§6[UTILITIES]§r",
-            "  §e!summonall §f- Spawn all 13 villager professions at your location",
-            "  §e!help §7/ §e!events §f- Show this command reference list",
+            "  §e/scriptevent rpc:summon <prof> §f- Spawn a specific profession (e.g. farmer, armorer)",
+            "  §e/scriptevent rpc:summonall §f- Spawn all 13 villager professions at your location",
+            "  §e/scriptevent rpc:help §f- Show this command reference list",
             "§6§l========================================================"
         ];
         this.notify(source, lines.join("\n"));

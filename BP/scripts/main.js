@@ -265,63 +265,6 @@ system.afterEvents.scriptEventReceive.subscribe((event) => {
     }
 });
 
-// Chat shortcut event commands: type !<command> in chat (e.g. !build_golem, !breed, !cure, !house, !help)
-let chatRegistered = false;
-
-// 1. Try world.beforeEvents.chatSend (intercepts & cancels the raw command message in chat)
-try {
-    if (world.beforeEvents && world.beforeEvents.chatSend) {
-        world.beforeEvents.chatSend.subscribe((event) => {
-            try {
-                const msg = event.message ? event.message.trim() : "";
-                if (msg.startsWith("!") || msg.startsWith("-")) {
-                    try { event.cancel = true; } catch {}
-                    const player = event.sender || world.getAllPlayers()[0];
-                    system.run(() => {
-                        try {
-                            customEventsManager.handleEventCommand(msg, player);
-                        } catch (err) {
-                            console.error(`[Villager Addon] Error executing command: ${err}`);
-                        }
-                    });
-                }
-            } catch (err) {
-                console.error(`[Villager Addon] Error in beforeEvents.chatSend: ${err}`);
-            }
-        });
-        chatRegistered = true;
-    }
-} catch (err) {
-    console.warn(`[Villager Addon] beforeEvents.chatSend not available: ${err}`);
-}
-
-// 2. Fallback to world.afterEvents.chatSend if beforeEvents wasn't supported
-if (!chatRegistered) {
-    try {
-        if (world.afterEvents && world.afterEvents.chatSend) {
-            world.afterEvents.chatSend.subscribe((event) => {
-                try {
-                    const msg = event.message ? event.message.trim() : "";
-                    if (msg.startsWith("!") || msg.startsWith("-")) {
-                        const player = event.sender || world.getAllPlayers()[0];
-                        system.run(() => {
-                            try {
-                                customEventsManager.handleEventCommand(msg, player);
-                            } catch (err) {
-                                console.error(`[Villager Addon] Error executing command: ${err}`);
-                            }
-                        });
-                    }
-                } catch (err) {
-                    console.error(`[Villager Addon] Error in afterEvents.chatSend: ${err}`);
-                }
-            });
-            chatRegistered = true;
-        }
-    } catch (err) {
-        console.error(`[Villager Addon] afterEvents.chatSend not available: ${err}`);
-    }
-}
 
 // Clean up expired unreachable targets periodically every 100 ticks
 system.runInterval(() => {
