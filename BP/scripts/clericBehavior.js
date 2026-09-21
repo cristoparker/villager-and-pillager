@@ -4,7 +4,7 @@
  * healing rituals, and brewing stand interactions.
  */
 
-import { ItemStack, EquipmentSlot } from "@minecraft/server";
+import { system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { CLERIC_CONFIG, FLETCHER_CONFIG } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
 
@@ -204,11 +204,14 @@ export function performWitcherRegen(villager) {
     } catch {}
 
     playSoundSafe(dim, "random.drink", vLoc, { volume: 1.0, pitch: 1.0 });
+    playSoundSafe(dim, "potion.splash", vLoc, { volume: 0.9, pitch: 1.1 });
     playSoundSafe(dim, "random.burp", vLoc, { volume: 0.8, pitch: 1.2 });
     spawnParticleSafe(dim, "minecraft:potion_splash_particle", { x: vLoc.x, y: vLoc.y + 1.2, z: vLoc.z });
+    spawnParticleSafe(dim, "minecraft:heart_particle", { x: vLoc.x, y: vLoc.y + 1.2, z: vLoc.z });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: vLoc.x, y: vLoc.y + 1.5, z: vLoc.z });
 
     try {
+        villager.addEffect("instant_health", 20, { amplifier: 1, showParticles: true });
         villager.addEffect("regeneration", 240, { amplifier: 1, showParticles: true });
         villager.addEffect("resistance", 240, { amplifier: 1, showParticles: false });
     } catch {}
@@ -227,6 +230,8 @@ export function isRaidOrMonsterThreatNearby(dimension, location, radius = CLERIC
     if (!dimension || !location) return false;
 
     for (const hostTypeId of FLETCHER_CONFIG.HOSTILE_TYPES) {
+        // Exclude zombie villagers from triggering hostile raid/combat panic for Clerics
+        if (hostTypeId === "minecraft:zombie_villager" || hostTypeId === "minecraft:zombie_villager_v2") continue;
         try {
             const mobs = dimension.getEntities({
                 type: hostTypeId,
@@ -254,6 +259,8 @@ export function findNearbyPillagersAndMonsters(dimension, location, radius = CLE
     let closestDist = Infinity;
 
     for (const mobType of FLETCHER_CONFIG.HOSTILE_TYPES) {
+        // Exclude zombie villagers so Clerics never attack them with harming or poison potions!
+        if (mobType === "minecraft:zombie_villager" || mobType === "minecraft:zombie_villager_v2") continue;
         try {
             const mobs = dimension.getEntities({
                 type: mobType,
@@ -384,6 +391,7 @@ export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CO
 
     let closest = null;
     let closestDist = Infinity;
+    const checkedIds = new Set();
 
     for (const typeId of zombieVillagerTypes) {
         try {
@@ -394,6 +402,27 @@ export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CO
             });
             for (const entity of entities) {
                 if (entity && entity.isValid() && !entity.hasTag("rpc:curing")) {
+                    checkedIds.add(entity.id);
+                    const d = distance(location, entity.location);
+                    if (d < closestDist) {
+                        closestDist = d;
+                        closest = entity;
+                    }
+                }
+            }
+        } catch {}
+    }
+
+    // Fallback search by entity family if type query missed any variant
+    if (!closest) {
+        try {
+            const entities = dimension.getEntities({
+                families: ["zombie_villager"],
+                location: location,
+                maxDistance: radius
+            });
+            for (const entity of entities) {
+                if (entity && entity.isValid() && !entity.hasTag("rpc:curing") && !checkedIds.has(entity.id)) {
                     const d = distance(location, entity.location);
                     if (d < closestDist) {
                         closestDist = d;
@@ -409,6 +438,8 @@ export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CO
 
 /**
  * Executes authentic weakness splash + golden apple feeding curing ritual on a zombie villager.
+ * Triggers official Bedrock villager_converted / to_villager transformation events,
+ * and includes a safe 5-second failsafe conversion guarantee.
  * @param {Entity} villager 
  * @param {Entity} zombieVillager 
  */
@@ -428,29 +459,63 @@ export function performCureZombieVillager(villager, zombieVillager) {
         zombieVillager.addTag("rpc:curing");
     } catch {}
 
-    // Splash weakness potion
+    // 1. Splash weakness potion effects & sounds
     playSoundSafe(dim, "potion.splash", zLoc, { volume: 1.0, pitch: 1.0 });
-    playSoundSafe(dim, "random.glass", zLoc, { volume: 0.8, pitch: 1.2 });
+    playSoundSafe(dim, "random.glass", zLoc, { volume: 0.9, pitch: 1.2 });
     spawnParticleSafe(dim, "minecraft:potion_splash_particle", { x: zLoc.x, y: zLoc.y + 1.0, z: zLoc.z });
 
-    try {
-        zombieVillager.addEffect("weakness", 1200, { amplifier: 0, showParticles: true });
-        zombieVillager.addEffect("slowness", 400, { amplifier: 1, showParticles: false });
-    } catch {}
-
-    // Feed golden apple
+    // 2. Feed golden apple audio & visual effects
     playSoundSafe(dim, "random.eat", zLoc, { volume: 0.9, pitch: 1.0 });
     playSoundSafe(dim, "random.potion.brew", zLoc, { volume: 1.0, pitch: 1.0 });
+    playSoundSafe(dim, "remedy", zLoc, { volume: 1.0, pitch: 1.0 });
     spawnParticleSafe(dim, "minecraft:totem_particle", { x: zLoc.x, y: zLoc.y + 1.2, z: zLoc.z });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: zLoc.x, y: zLoc.y + 1.0, z: zLoc.z });
 
-    // Trigger transformation into normal villager!
+    // 3. Apply Weakness & Slowness to pacify zombie villager during curing
+    try {
+        zombieVillager.addEffect("weakness", 1200, { amplifier: 0, showParticles: true });
+        zombieVillager.addEffect("slowness", 400, { amplifier: 3, showParticles: false });
+        zombieVillager.addEffect("strength", 1200, { amplifier: 0, showParticles: false });
+    } catch {}
+
+    // 4. Trigger authentic Bedrock entity transformation events
+    try {
+        zombieVillager.triggerEvent("villager_converted");
+    } catch {}
+    try {
+        zombieVillager.triggerEvent("to_villager");
+    } catch {}
     try {
         zombieVillager.triggerEvent("minecraft:start_transforming");
     } catch {}
     try {
-        zombieVillager.runCommandAsync("event entity @s minecraft:start_transforming").catch(() => {});
+        zombieVillager.runCommandAsync("event entity @s villager_converted").catch(() => {});
+        zombieVillager.runCommandAsync("event entity @s to_villager").catch(() => {});
     } catch {}
+
+    // 5. Guaranteed Failsafe Conversion: after 100 ticks (5 seconds), ensure entity transforms
+    const zId = zombieVillager.id;
+    const targetLoc = { x: zLoc.x, y: zLoc.y, z: zLoc.z };
+    system.runTimeout(() => {
+        try {
+            const currentZ = dim.getEntities({ location: targetLoc, maxDistance: 6 }).find(e => e.id === zId);
+            if (currentZ && currentZ.isValid() && currentZ.typeId.includes("zombie")) {
+                const newVillager = dim.spawnEntity("minecraft:villager_v2", currentZ.location);
+                if (newVillager) {
+                    try {
+                        const name = currentZ.nameTag;
+                        if (name) newVillager.nameTag = name;
+                    } catch {}
+                }
+                playSoundSafe(dim, "unfect", targetLoc, { volume: 1.0, pitch: 1.0 });
+                playSoundSafe(dim, "random.levelup", targetLoc, { volume: 0.9, pitch: 1.2 });
+                spawnParticleSafe(dim, "minecraft:heart_particle", { x: targetLoc.x, y: targetLoc.y + 1.2, z: targetLoc.z });
+                spawnParticleSafe(dim, "minecraft:villager_happy", { x: targetLoc.x, y: targetLoc.y + 1.5, z: targetLoc.z });
+                spawnParticleSafe(dim, "minecraft:totem_particle", { x: targetLoc.x, y: targetLoc.y + 1.0, z: targetLoc.z });
+                currentZ.remove();
+            }
+        } catch {}
+    }, 100);
 
     equipPotion(villager);
     playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.1 });

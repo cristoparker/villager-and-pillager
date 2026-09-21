@@ -163,9 +163,6 @@ export function summonAllVillagers(player, managers = {}) {
                 const villagerYaw = (rot.y + 180) % 360;
                 villager.teleport(spawnPos, { rotation: { x: 0, y: villagerYaw } });
 
-                // Set floating colored profession name
-                villager.nameTag = prof.displayName;
-
                 // Apply Bedrock profession event
                 villager.triggerEvent(prof.event);
                 if (prof.customEvent) {

@@ -330,11 +330,15 @@ export const EXPANSION_CONFIG = {
     ITEM_PICKUP_DISTANCE: 1.8,
     CHEST_SEARCH_RADIUS: 20,
     CHEST_DEPOSIT_DISTANCE: 2.5,
-    BED_SEARCH_RADIUS: 14,
-    BED_COOLDOWN_TICKS: 4800, // 4 minutes - not too frequent!
+    BED_SEARCH_RADIUS: 64, // 64-block village detection system
+    BED_COOLDOWN_MIN_TICKS: 3600, // 3 minutes
+    BED_COOLDOWN_MAX_TICKS: 6000, // 5 minutes
+    BED_COOLDOWN_TICKS: 4800, // Default 4 minutes fallback
     CHEST_COOLDOWN_TICKS: 3600, // 3 minutes
-    WORKBENCH_SEARCH_RADIUS: 10,
-    WORKBENCH_COOLDOWN_TICKS: 600, // 30 seconds
+    WORKBENCH_SEARCH_RADIUS: 64, // 64-block workbench detection system
+    WORKBENCH_COOLDOWN_MIN_TICKS: 3600, // 3 minutes
+    WORKBENCH_COOLDOWN_MAX_TICKS: 6000, // 5 minutes
+    WORKBENCH_COOLDOWN_TICKS: 4800, // 4 minutes - lower placement frequency
     BREED_CHECK_INTERVAL_TICKS: 60,
     BREED_COOLDOWN_TICKS: 600,
     MAX_LOCAL_BEDS_SURPLUS: 0,
@@ -357,5 +361,51 @@ export const EXPANSION_CONFIG = {
     ]
 };
 
+/**
+ * Returns a randomized cooldown between minTicks (default 3600 = 3 mins) and maxTicks (default 6000 = 5 mins).
+ * @param {number} minTicks 
+ * @param {number} maxTicks 
+ * @returns {number}
+ */
+export function getRandomCooldownTicks(minTicks = 3600, maxTicks = 6000) {
+    return Math.floor(minTicks + Math.random() * (maxTicks - minTicks));
+}
 
+export const HAY_CONFIG = {
+    BLOCK_ID: "minecraft:hay_block",
+    SEARCH_RADIUS: 24,
+    CLUSTER_RADIUS: 6,
+    MAX_CLUSTER_SIZE: 12,
+    PLACEMENT_DISTANCE: 2.8,
+    COOLDOWN_MIN_TICKS: 2400, // 2 minutes
+    COOLDOWN_MAX_TICKS: 4800, // 4 minutes
+    CHANCE_TO_START_CLUSTER: 0.20,
+    CHANCE_TO_EXPAND_CLUSTER: 0.70
+};
+
+export const HOUSE_BUILD_CONFIG = {
+    // Very few villagers will build homes (rare, special event)
+    BUILDER_CHANCE: 0.12, // 12% chance for an eligible adult villager to attempt building a home
+    BUILD_COOLDOWN_MIN_TICKS: 12000, // 10 minutes
+    BUILD_COOLDOWN_MAX_TICKS: 24000, // 20 minutes
+    AREA_COOLDOWN_MS: 900000, // 15 minutes per village area
+    SEARCH_RADIUS: 24, // Radius to search for free 5x5 building plots
+    MIN_DISTANCE_FROM_VILLAGER: 8,
+    MIN_DISTANCE_FROM_EXISTING_POI: 12,
+    STAGE_DURATION_TICKS: 30, // 1.5 seconds per construction stage
+    MAX_HOUSES_PER_AREA: 3,
+    
+    // Materials
+    FOUNDATION_BLOCK: "minecraft:cobblestone",
+    FLOOR_BLOCK: "minecraft:oak_planks",
+    CORNER_BLOCK: "minecraft:oak_log",
+    WALL_LOWER_BLOCK: "minecraft:cobblestone",
+    WALL_UPPER_BLOCK: "minecraft:oak_planks",
+    WINDOW_BLOCK: "minecraft:glass_pane",
+    ROOF_BLOCK: "minecraft:oak_planks",
+    DOOR_BLOCK: "minecraft:wooden_door",
+    BED_BLOCK: "minecraft:bed",
+    LIGHT_BLOCK: "minecraft:torch",
+    FURNITURE_BLOCK: "minecraft:crafting_table"
+};
 

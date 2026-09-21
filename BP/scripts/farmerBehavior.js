@@ -1221,11 +1221,11 @@ export function countNearbyBeds(dimension, location, radius = FARMER_CONFIG.BED_
     const ox = Math.floor(location.x);
     const oy = Math.floor(location.y);
     const oz = Math.floor(location.z);
-    const r = Math.min(radius, 12);
+    const r = Math.min(radius, 16);
 
-    for (let dx = -r; dx <= r; dx++) {
-        for (let dz = -r; dz <= r; dz++) {
-            for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -r; dx <= r; dx += 3) {
+        for (let dz = -r; dz <= r; dz += 3) {
+            for (let dy = -2; dy <= 2; dy += 2) {
                 const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                 try {
                     const block = dimension.getBlock(pos);

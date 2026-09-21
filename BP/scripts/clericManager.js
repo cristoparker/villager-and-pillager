@@ -126,9 +126,29 @@ export class ClericManager {
             witcherCooldown: 0,
             offensiveCooldown: 0,
             sanctuaryCooldown: 0,
+            hurtRegenCooldown: 0,
             healScanCooldown: Math.floor(Math.random() * 60) + 20, // Quick initial health check, then every 30s
             timer: 20
         });
+    }
+
+    /**
+     * Reacts immediately when a Cleric takes damage from any source.
+     * @param {Entity} villager 
+     * @param {number} damage 
+     * @param {object} damageSource 
+     */
+    onClericHurt(villager, damage, damageSource) {
+        if (!villager || !villager.isValid()) return;
+        const record = this.records.get(villager.id);
+        if (!record) return;
+
+        if (record.hurtRegenCooldown <= 0) {
+            record.hurtRegenCooldown = 60; // 3-second cooldown between hurt drinking
+            record.witcherCooldown = 120;
+            performWitcherRegen(villager);
+            equipPotion(villager);
+        }
     }
 
     /**
@@ -193,6 +213,21 @@ export class ClericManager {
         if (record.offensiveCooldown > 0) record.offensiveCooldown--;
         if (record.sanctuaryCooldown > 0) record.sanctuaryCooldown--;
         if (record.healScanCooldown > 0) record.healScanCooldown--;
+        if (record.hurtRegenCooldown > 0) record.hurtRegenCooldown--;
+
+        // Continuous damage & health check across all active states:
+        // If the Cleric has lost any health and cooldown is ready, drink regeneration!
+        if (record.state !== ClericState.SLEEPING && record.hurtRegenCooldown <= 0) {
+            try {
+                const health = villager.getComponent("minecraft:health");
+                if (health && health.currentValue < health.effectiveMax) {
+                    record.hurtRegenCooldown = 80; // 4-second cooldown
+                    record.witcherCooldown = 120;
+                    performWitcherRegen(villager);
+                    equipPotion(villager);
+                }
+            } catch {}
+        }
 
         switch (record.state) {
             case ClericState.SLEEPING: {
@@ -249,7 +284,24 @@ export class ClericManager {
                     record.timer = 20;
                     equipPotion(villager);
 
-                    // Check for Raid or Monster threats nearby
+                    // 1. PRIORITY 1: Curing Zombie Villagers! (Cleric's sacred duty, 28 blocks range)
+                    const zombieVillager = findNearbyZombieVillager(villager.dimension, villager.location, CLERIC_CONFIG.ZOMBIE_VILLAGER_SEARCH_RADIUS);
+                    if (zombieVillager) {
+                        record.targetZombieVillager = zombieVillager;
+                        const dist = distance(villager.location, zombieVillager.location);
+                        if (dist <= 5.5) {
+                            record.state = ClericState.CURING_ZOMBIE_VILLAGER;
+                            record.timer = 15;
+                            equipGoldenApple(villager);
+                        } else {
+                            record.state = ClericState.APPROACHING_ZOMBIE_VILLAGER;
+                            record.timer = Math.max(160, Math.ceil(dist / 0.18) + 60);
+                            equipGoldenApple(villager);
+                        }
+                        break;
+                    }
+
+                    // 2. PRIORITY 2: Check for Raid or Monster threats nearby
                     const inDanger = isRaidOrMonsterThreatNearby(villager.dimension, villager.location, CLERIC_CONFIG.RAID_SEARCH_RADIUS);
                     if (inDanger) {
                         // 1. Self-preservation: Witcher-style potion drinking
@@ -301,25 +353,7 @@ export class ClericManager {
                         }
                     }
 
-                    // Peaceful routine
-                    // 1. Scan for Zombie Villager in need of golden apple & weakness curing ritual (28 blocks range!)
-                    const zombieVillager = findNearbyZombieVillager(villager.dimension, villager.location, CLERIC_CONFIG.ZOMBIE_VILLAGER_SEARCH_RADIUS);
-                    if (zombieVillager) {
-                        record.targetZombieVillager = zombieVillager;
-                        const dist = distance(villager.location, zombieVillager.location);
-                        if (dist <= 3.2) {
-                            record.state = ClericState.CURING_ZOMBIE_VILLAGER;
-                            record.timer = 35;
-                            equipGoldenApple(villager);
-                        } else {
-                            record.state = ClericState.APPROACHING_ZOMBIE_VILLAGER;
-                            record.timer = Math.max(160, Math.ceil(dist / 0.18) + 60);
-                            equipPotion(villager);
-                        }
-                        break;
-                    }
-
-                    // 2. Periodic Smart Health Scan (every 30 to 60 seconds) across 20-32 blocks (configured to 28 blocks)
+                    // 3. Periodic Smart Health Scan (every 30 to 60 seconds) across 20-32 blocks
                     if (record.healScanCooldown <= 0) {
                         record.healScanCooldown = CLERIC_CONFIG.HEAL_SCAN_INTERVAL_TICKS; // Reset 30s timer
                         const injured = findNearbyInjuredAlly(villager.dimension, villager.location, CLERIC_CONFIG.ALLIED_SEARCH_RADIUS);
@@ -407,26 +441,27 @@ export class ClericManager {
 
                 const zLoc = record.targetZombieVillager.location;
                 const dist = distance(villager.location, zLoc);
-                if (dist <= 3.5) {
+                if (dist <= 5.5) {
                     record.state = ClericState.CURING_ZOMBIE_VILLAGER;
-                    record.timer = 35;
+                    record.timer = 15;
                     equipGoldenApple(villager);
                     break;
                 }
 
                 try {
-                    // Give protective resistance to cleric while approaching hostile zombie villager
+                    // Protective resistance and regeneration to cleric while approaching zombie villager
                     villager.addEffect("resistance", 40, { amplifier: 1, showParticles: false });
+                    villager.addEffect("regeneration", 40, { amplifier: 1, showParticles: false });
 
                     if (record.timer % 10 === 0) {
                         const rot = getLookRotation(villager.location, zLoc);
                         villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        equipPotion(villager);
+                        equipGoldenApple(villager);
                     }
                     const dx = zLoc.x - villager.location.x;
                     const dz = zLoc.z - villager.location.z;
                     const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.20, y: 0, z: (dz / len) * 0.20 });
+                    villager.applyImpulse({ x: (dx / len) * 0.22, y: 0, z: (dz / len) * 0.22 });
                 } catch {}
                 break;
             }
@@ -439,7 +474,7 @@ export class ClericManager {
                     }
                     record.targetZombieVillager = null;
                     record.state = ClericState.COOLDOWN;
-                    record.timer = 60;
+                    record.timer = 40;
                 }
                 break;
             }

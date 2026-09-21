@@ -245,7 +245,7 @@ export function clearAllProfessions(target, managers = {}) {
 
     // Clear profession nameTag if present
     try {
-        if (target.nameTag && target.nameTag.includes("[")) {
+        if (target.nameTag && (target.nameTag.includes("[") || target.nameTag.includes("§"))) {
             target.nameTag = "";
         }
     } catch {}
@@ -273,6 +273,13 @@ function isNightTime() {
 export function synchronizeVillagerOccupation(villager, managers = {}) {
     if (!villager || !villager.isValid()) return;
 
+    // Automatically strip any profession nameTags
+    try {
+        if (villager.nameTag && (villager.nameTag.includes("[") || villager.nameTag.includes("§"))) {
+            villager.nameTag = "";
+        }
+    } catch {}
+
     const currentProf = getVillagerProfession(villager);
     const equippable = villager.getComponent("minecraft:equippable");
     const heldItem = equippable?.getEquipment(EquipmentSlot.Mainhand);
@@ -289,7 +296,18 @@ export function synchronizeVillagerOccupation(villager, managers = {}) {
         return;
     }
 
-    const UNIVERSAL_ALLOWED_ITEMS = ["minecraft:chest", "minecraft:barrel", "minecraft:bed"];
+    const UNIVERSAL_ALLOWED_ITEMS = [
+        "minecraft:chest",
+        "minecraft:barrel",
+        "minecraft:bed",
+        "minecraft:hay_block",
+        "minecraft:cobblestone",
+        "minecraft:oak_planks",
+        "minecraft:oak_log",
+        "minecraft:wooden_door",
+        "minecraft:torch",
+        "minecraft:crafting_table"
+    ];
 
     // Case 2: Holding an item or tag from a DIFFERENT profession
     const hasStaleTag = ALL_RPC_TAGS.some(tag => tag !== expected.rpcTag && villager.hasTag(tag));
@@ -302,13 +320,6 @@ export function synchronizeVillagerOccupation(villager, managers = {}) {
         // Add correct new tags
         villager.addTag(expected.tag);
         villager.addTag(expected.rpcTag);
-
-        // Update profession name tag if already using profession tags
-        try {
-            if (!villager.nameTag || villager.nameTag.includes("[")) {
-                villager.nameTag = expected.displayName;
-            }
-        } catch {}
 
         // Equip correct new item (unless sleeping)
         if (!isNightTime()) {
@@ -328,12 +339,6 @@ export function synchronizeVillagerOccupation(villager, managers = {}) {
     if (!villager.hasTag(expected.rpcTag)) {
         villager.addTag(expected.tag);
         villager.addTag(expected.rpcTag);
-
-        try {
-            if (!villager.nameTag || villager.nameTag.includes("[")) {
-                villager.nameTag = expected.displayName;
-            }
-        } catch {}
 
         if (!isNightTime() && (!heldTypeId || !expected.allowedItems.includes(heldTypeId))) {
             try {

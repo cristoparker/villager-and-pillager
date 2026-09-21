@@ -61,7 +61,14 @@
               "minecraft:goat_horn",
               "minecraft:chest",
               "minecraft:barrel",
-              "minecraft:bed"
+              "minecraft:bed",
+              "minecraft:hay_block",
+              "minecraft:cobblestone",
+              "minecraft:oak_planks",
+              "minecraft:oak_log",
+              "minecraft:wooden_door",
+              "minecraft:torch",
+              "minecraft:crafting_table"
             ]
           }
         ]
@@ -2770,6 +2777,104 @@
       }
     },
     "events": {
+      "rpc:build_golem": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_build_golem"
+          ]
+        }
+      },
+      "rpc:breed": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_breed"
+          ]
+        }
+      },
+      "rpc:cure": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_cure"
+          ]
+        }
+      },
+      "rpc:harvest": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_harvest"
+          ]
+        }
+      },
+      "rpc:plant": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_plant"
+          ]
+        }
+      },
+      "rpc:house": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_house"
+          ]
+        }
+      },
+      "rpc:bed": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_bed"
+          ]
+        }
+      },
+      "rpc:sanctuary": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_sanctuary"
+          ]
+        }
+      },
+      "rpc:regen": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_regen"
+          ]
+        }
+      },
+      "rpc:fish": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_fish"
+          ]
+        }
+      },
+      "rpc:shear": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_shear"
+          ]
+        }
+      },
+      "rpc:shoot": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_shoot"
+          ]
+        }
+      },
+      "rpc:sharpen": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_sharpen"
+          ]
+        }
+      },
+      "rpc:enchant": {
+        "queue_command": {
+          "command": [
+            "tag @s add rpc:event_enchant"
+          ]
+        }
+      },
       "rpc:start_approach_target": {
         "add": {
           "component_groups": [

@@ -24,6 +24,8 @@ import { ClericManager } from "./clericManager.js";
 import { ArmorerManager } from "./armorerManager.js";
 import { LibrarianManager } from "./librarianManager.js";
 import { VillageExpansionManager, setGlobalExpansionManager } from "./villageExpansionManager.js";
+import { VillagePopulationManager } from "./villagePopulationManager.js";
+import { CustomEventsManager } from "./customEventsManager.js";
 import { summonAllVillagers } from "./summonHelper.js";
 import { synchronizeVillagerOccupation, clearAllProfessions, getVillagerProfession } from "./professionHelper.js";
 
@@ -49,21 +51,41 @@ export const allManagers = {
     clericManager,
     armorerManager,
     librarianManager,
-    villageExpansionManager
+    villageExpansionManager,
+    villagePopulationManager: null,
+    customEventsManager: null
 };
 
-// Central game tick loop
+const villagePopulationManager = new VillagePopulationManager(allManagers);
+allManagers.villagePopulationManager = villagePopulationManager;
+
+const customEventsManager = new CustomEventsManager(allManagers);
+allManagers.customEventsManager = customEventsManager;
+
+let globalTickCounter = 0;
+
+// Central game tick loop - staggered across alternating tick phases for buttery smooth 20 TPS
 system.runInterval(() => {
-    try { fishermanManager.update(); } catch (err) { console.error(`[Villager Addon] Error in fisherman loop: ${err}`); }
-    try { shepherdManager.update(); } catch (err) { console.error(`[Villager Addon] Error in shepherd loop: ${err}`); }
-    try { butcherManager.update(); } catch (err) { console.error(`[Villager Addon] Error in butcher loop: ${err}`); }
-    try { fletcherManager.update(); } catch (err) { console.error(`[Villager Addon] Error in fletcher loop: ${err}`); }
-    try { farmerManager.update(); } catch (err) { console.error(`[Villager Addon] Error in farmer loop: ${err}`); }
-    try { weaponsmithManager.update(); } catch (err) { console.error(`[Villager Addon] Error in weaponsmith loop: ${err}`); }
-    try { clericManager.update(); } catch (err) { console.error(`[Villager Addon] Error in cleric loop: ${err}`); }
-    try { armorerManager.update(); } catch (err) { console.error(`[Villager Addon] Error in armorer loop: ${err}`); }
-    try { librarianManager.update(); } catch (err) { console.error(`[Villager Addon] Error in librarian loop: ${err}`); }
-    try { villageExpansionManager.update(); } catch (err) { console.error(`[Villager Addon] Error in expansion loop: ${err}`); }
+    globalTickCounter++;
+    const phase = globalTickCounter % 2;
+
+    // Phase 0: Primary gathering, farming & village expansion
+    if (phase === 0) {
+        try { fishermanManager.update(); } catch (err) { console.error(`[Villager Addon] Error in fisherman loop: ${err}`); }
+        try { farmerManager.update(); } catch (err) { console.error(`[Villager Addon] Error in farmer loop: ${err}`); }
+        try { shepherdManager.update(); } catch (err) { console.error(`[Villager Addon] Error in shepherd loop: ${err}`); }
+        try { villageExpansionManager.update(); } catch (err) { console.error(`[Villager Addon] Error in expansion loop: ${err}`); }
+        try { villagePopulationManager.update(); } catch (err) { console.error(`[Villager Addon] Error in population loop: ${err}`); }
+    }
+    // Phase 1: Combat, crafting & scholar roles
+    else {
+        try { butcherManager.update(); } catch (err) { console.error(`[Villager Addon] Error in butcher loop: ${err}`); }
+        try { fletcherManager.update(); } catch (err) { console.error(`[Villager Addon] Error in fletcher loop: ${err}`); }
+        try { weaponsmithManager.update(); } catch (err) { console.error(`[Villager Addon] Error in weaponsmith loop: ${err}`); }
+        try { clericManager.update(); } catch (err) { console.error(`[Villager Addon] Error in cleric loop: ${err}`); }
+        try { armorerManager.update(); } catch (err) { console.error(`[Villager Addon] Error in armorer loop: ${err}`); }
+        try { librarianManager.update(); } catch (err) { console.error(`[Villager Addon] Error in librarian loop: ${err}`); }
+    }
 }, 1);
 
 // Register newly spawned or transformed villagers with a 2-tick stabilization delay
@@ -89,37 +111,52 @@ world.afterEvents.entitySpawn.subscribe((event) => {
     } catch {}
 });
 
+// Instant hurt reaction: Clerics immediately drink regeneration upon taking damage
+world.afterEvents.entityHurt.subscribe((event) => {
+    try {
+        const hurtEntity = event.hurtEntity;
+        if (!hurtEntity || !hurtEntity.isValid()) return;
+        if (clericManager.isClericVillager(hurtEntity)) {
+            clericManager.onClericHurt(hurtEntity, event.damage, event.damageSource);
+        }
+    } catch {}
+});
+
 // Dynamic Profession & Occupation Synchronization Loop
-// Runs every 15 ticks across all loaded dimensions:
-// Automatically detects when a villager claims a workstation, changes workstation, or loses their job!
-// Dynamically updates their held tools, name tags, custom tags, and active AI manager.
+// Runs every 40 ticks (2 seconds) in the overworld to detect workstation changes without lag
 system.runInterval(() => {
     try {
-        const dimensions = ["overworld", "nether", "the_end"];
-        for (const dimId of dimensions) {
-            let dim;
-            try { dim = world.getDimension(dimId); } catch {}
-            if (!dim) continue;
+        let dim;
+        try { dim = world.getDimension("overworld"); } catch {}
+        if (!dim) return;
 
-            let villagers = [];
-            try {
-                villagers = dim.getEntities({ type: "minecraft:villager_v2" });
-            } catch {}
-            try {
-                const legacy = dim.getEntities({ type: "minecraft:villager" });
-                if (legacy && legacy.length > 0) villagers = villagers.concat(legacy);
-            } catch {}
+        let villagers = [];
+        try {
+            villagers = dim.getEntities({ type: "minecraft:villager_v2" });
+        } catch {}
+        try {
+            const legacy = dim.getEntities({ type: "minecraft:villager" });
+            if (legacy && legacy.length > 0) villagers = villagers.concat(legacy);
+        } catch {}
 
-            for (const villager of villagers) {
-                if (villager && villager.isValid()) {
-                    synchronizeVillagerOccupation(villager, allManagers);
+        for (const villager of villagers) {
+            if (villager && villager.isValid()) {
+                synchronizeVillagerOccupation(villager, allManagers);
+
+                // Check for on-demand entity event tags triggered via /event or /tag
+                for (const tag of villager.getTags()) {
+                    if (tag.startsWith("rpc:event_")) {
+                        const action = tag.replace("rpc:event_", "");
+                        customEventsManager.handleEventCommand(action, villager);
+                        villager.removeTag(tag);
+                    }
                 }
             }
         }
     } catch (err) {
         console.error(`[Villager Addon] Error in occupation sync loop: ${err}`);
     }
-}, 15);
+}, 40);
 
 // Allow player interactions to convert villagers into smart professions
 world.afterEvents.playerInteractWithEntity.subscribe((event) => {
@@ -215,36 +252,29 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
     } catch {}
 });
 
-// Custom command /function summon_all or /scriptevent rpc:summon_all
+// Custom Event Commands via /scriptevent (e.g. /scriptevent rpc:build_golem, /scriptevent rpc:breed)
 system.afterEvents.scriptEventReceive.subscribe((event) => {
     try {
-        if (event.id === "rpc:summon_all" || event.id === "rpc:summon_villagers" || event.id === "rpc:summon") {
-            const player = event.sourceEntity;
-            if (player && player.isValid()) {
-                summonAllVillagers(player, allManagers);
-            } else {
-                const players = world.getAllPlayers();
-                if (players && players.length > 0) {
-                    summonAllVillagers(players[0], allManagers);
-                }
-            }
+        if (event.id.startsWith("rpc:")) {
+            const player = event.sourceEntity || world.getAllPlayers()[0];
+            customEventsManager.handleEventCommand(event.id, player, event.message);
         }
     } catch (e) {
-        console.error(`[Villager Addon] Error handling summon script event: ${e}`);
+        console.error(`[Villager Addon] Error handling script event: ${e}`);
     }
 });
 
-// Chat shortcut: type !summonall or !villagers in chat to summon every villager profession!
+// Chat shortcut event commands: type !<command> in chat (e.g. !build_golem, !breed, !cure, !house, !help)
 try {
     const chatEvent = world.beforeEvents?.chatSend || world.afterEvents?.chatSend;
     chatEvent?.subscribe((event) => {
         try {
-            const msg = event.message.trim().toLowerCase();
-            if (msg === "!summonall" || msg === "!villagers" || msg === "!summon_villagers" || msg === "!summon") {
+            const msg = event.message.trim();
+            if (msg.startsWith("!")) {
                 if ("cancel" in event) event.cancel = true;
                 const player = event.sender;
                 system.run(() => {
-                    summonAllVillagers(player, allManagers);
+                    customEventsManager.handleEventCommand(msg, player);
                 });
             }
         } catch {}
