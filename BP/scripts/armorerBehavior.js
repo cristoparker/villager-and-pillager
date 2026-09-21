@@ -6,7 +6,7 @@
 
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { ARMORER_CONFIG, FLETCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, isSolidGround } from "./utils.js";
+import { distance, getLookRotation, setEntityLook, playSoundSafe, spawnParticleSafe, setBlockSafe, isSolidGround, isTargetUnreachable, markTargetUnreachable } from "./utils.js";
 
 /**
  * Equips iron ingot in armorer's main hand.
@@ -65,7 +65,7 @@ export function findNearbyDamagedGolem(dimension, location, radius = ARMORER_CON
         });
 
         for (const golem of golems) {
-            if (!golem || !golem.isValid()) continue;
+            if (!golem || !golem.isValid() || isTargetUnreachable(golem.id)) continue;
             const health = golem.getComponent("minecraft:health");
             if (health && health.currentValue < health.effectiveMax * 0.9) {
                 return golem;
@@ -94,6 +94,7 @@ export function findNearbyBlastFurnace(dimension, location, radius = 16) {
         for (let dz = -radius; dz <= radius; dz += 2) {
             for (let dy = -2; dy <= 2; dy++) {
                 const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
+                if (isTargetUnreachable(pos)) continue;
                 try {
                     const block = dimension.getBlock(pos);
                     if (block && block.typeId === ARMORER_CONFIG.BLAST_FURNACE_ID) {

@@ -7,7 +7,7 @@
 
 import { world } from "@minecraft/server";
 import { WEAPONSMITH_CONFIG } from "./config.js";
-import { distance, getLookRotation } from "./utils.js";
+import { distance, getLookRotation, smoothMoveTowards, setEntityLook, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipSword,
@@ -37,7 +37,7 @@ export const WeaponsmithState = {
 
 export class WeaponsmithManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, grindstone: any, targetMonster: Entity|null, targetAlly: Entity|null, hasCalledHorn: boolean, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, grindstone: any, targetMonster: Entity|null, targetAlly: Entity|null, hasCalledHorn: boolean, timer: number, step: number, stuckTicks: number, lastLoc: any }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -112,7 +112,13 @@ export class WeaponsmithManager {
             state: WeaponsmithState.IDLE,
             villager: villager,
             grindstone: null,
-            timer: 20
+            targetMonster: null,
+            targetAlly: null,
+            hasCalledHorn: false,
+            timer: 20,
+            step: 0,
+            stuckTicks: 0,
+            lastLoc: null
         });
     }
 
@@ -249,18 +255,11 @@ export class WeaponsmithManager {
                 }
 
                 // Face monster and close in
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, mLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    if (dist > WEAPONSMITH_CONFIG.ATTACK_DISTANCE) {
-                        const dx = mLoc.x - villager.location.x;
-                        const dz = mLoc.z - villager.location.z;
-                        const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                        villager.applyImpulse({ x: (dx / len) * 0.20, y: 0, z: (dz / len) * 0.20 });
-                    }
-                } catch {}
+                if (dist > WEAPONSMITH_CONFIG.ATTACK_DISTANCE) {
+                    smoothMoveTowards(villager, mLoc, { speed: 0.20, stopDistance: WEAPONSMITH_CONFIG.ATTACK_DISTANCE, lookTarget: mLoc });
+                } else {
+                    setEntityLook(villager, mLoc);
+                }
 
                 // Strike!
                 if (dist <= WEAPONSMITH_CONFIG.ATTACK_DISTANCE + 0.5 && record.timer <= 0) {
@@ -276,36 +275,56 @@ export class WeaponsmithManager {
                     record.timer = 25;
                     equipSword(villager);
 
-                    // 1. Scan for unbuffed combat allies to sharpen their blades
-                    const ally = findNearbyCombatAllies(villager.dimension, villager.location, WEAPONSMITH_CONFIG.BUFF_SEARCH_RADIUS);
-                    if (ally) {
-                        record.targetAlly = ally;
-                        const dist = distance(villager.location, ally.location);
-                        if (dist <= 2.5) {
-                            record.state = WeaponsmithState.SHARPENING_ALLY;
-                            record.timer = 25;
-                        } else {
-                            record.state = WeaponsmithState.APPROACHING_ALLY;
-                            record.timer = 90;
+                    const startStep = record.step || 0;
+                    let actionFound = false;
+
+                    for (let s = 0; s < 2; s++) {
+                        const currentStep = (startStep + s) % 2;
+                        record.step = (currentStep + 1) % 2;
+
+                        // Step 0: Scan for unbuffed combat allies to sharpen their blades
+                        if (currentStep === 0) {
+                            const ally = findNearbyCombatAllies(villager.dimension, villager.location, WEAPONSMITH_CONFIG.BUFF_SEARCH_RADIUS);
+                            if (ally && !isTargetUnreachable(ally)) {
+                                record.targetAlly = ally;
+                                const dist = distance(villager.location, ally.location);
+                                if (dist <= 2.5) {
+                                    record.state = WeaponsmithState.SHARPENING_ALLY;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = WeaponsmithState.APPROACHING_ALLY;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
+                            }
                         }
-                        break;
+
+                        // Step 1: Sharpen sword at Grindstone
+                        else if (currentStep === 1) {
+                            const grindstone = findNearbyGrindstone(villager.dimension, villager.location, WEAPONSMITH_CONFIG.GRINDSTONE_SEARCH_RADIUS);
+                            if (grindstone && !isTargetUnreachable(grindstone.pos)) {
+                                record.grindstone = grindstone;
+                                const dist = distance(villager.location, grindstone.pos);
+                                if (dist <= WEAPONSMITH_CONFIG.GRINDSTONE_USE_DISTANCE) {
+                                    record.state = WeaponsmithState.SHARPENING;
+                                    record.timer = WEAPONSMITH_CONFIG.SHARPEN_ANIMATION_TICKS;
+                                } else {
+                                    record.state = WeaponsmithState.APPROACHING_GRINDSTONE;
+                                    record.timer = 100;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
+                            }
+                        }
                     }
 
-                    // 2. Secondary: Sharpen sword at Grindstone
-                    if (Math.random() < 0.35) {
-                        const grindstone = findNearbyGrindstone(villager.dimension, villager.location, WEAPONSMITH_CONFIG.GRINDSTONE_SEARCH_RADIUS);
-                        if (grindstone) {
-                            record.grindstone = grindstone;
-                            const dist = distance(villager.location, grindstone.pos);
-                            if (dist <= WEAPONSMITH_CONFIG.GRINDSTONE_USE_DISTANCE) {
-                                record.state = WeaponsmithState.SHARPENING;
-                                record.timer = WEAPONSMITH_CONFIG.SHARPEN_ANIMATION_TICKS;
-                            } else {
-                                record.state = WeaponsmithState.APPROACHING_GRINDSTONE;
-                                record.timer = 100;
-                            }
-                            break;
-                        }
+                    if (!actionFound) {
+                        record.timer = 20;
                     }
                 }
                 break;
@@ -320,26 +339,30 @@ export class WeaponsmithManager {
                     break;
                 }
 
-                try {
-                    const aLoc = record.targetAlly.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, aLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = aLoc.x - villager.location.x;
-                    const dz = aLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetAlly.location);
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.targetAlly) markTargetUnreachable(record.targetAlly, 400);
+                    record.step = ((record.step || 0) + 1) % 2;
+                    record.state = WeaponsmithState.IDLE;
+                    record.targetAlly = null;
+                    record.timer = 1;
+                    break;
+                }
+
+                const aLoc = record.targetAlly.location;
+                smoothMoveTowards(villager, aLoc, { speed: 0.16, stopDistance: 2.2, lookTarget: aLoc });
+
+                const dist = distance(curLoc, aLoc);
                 if (dist <= 2.5) {
                     record.state = WeaponsmithState.SHARPENING_ALLY;
                     record.timer = 25;
-                } else if (record.timer <= 0) {
-                    record.state = WeaponsmithState.IDLE;
-                    record.targetAlly = null;
-                    record.timer = 20;
                 }
                 break;
             }
@@ -362,29 +385,34 @@ export class WeaponsmithManager {
                 record.timer--;
                 if (!record.grindstone) {
                     record.state = WeaponsmithState.IDLE;
+                    record.timer = 10;
                     break;
                 }
 
-                try {
-                    const gPos = { x: record.grindstone.pos.x + 0.5, y: record.grindstone.pos.y, z: record.grindstone.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, gPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = gPos.x - villager.location.x;
-                    const dz = gPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.grindstone.pos);
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.grindstone) markTargetUnreachable(record.grindstone.pos, 400);
+                    record.step = ((record.step || 0) + 1) % 2;
+                    record.state = WeaponsmithState.IDLE;
+                    record.grindstone = null;
+                    record.timer = 1;
+                    break;
+                }
+
+                const gPos = { x: record.grindstone.pos.x + 0.5, y: record.grindstone.pos.y, z: record.grindstone.pos.z + 0.5 };
+                smoothMoveTowards(villager, gPos, { speed: 0.16, stopDistance: WEAPONSMITH_CONFIG.GRINDSTONE_USE_DISTANCE, lookTarget: gPos });
+
+                const dist = distance(curLoc, record.grindstone.pos);
                 if (dist <= WEAPONSMITH_CONFIG.GRINDSTONE_USE_DISTANCE) {
                     record.state = WeaponsmithState.SHARPENING;
                     record.timer = WEAPONSMITH_CONFIG.SHARPEN_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    record.state = WeaponsmithState.IDLE;
-                    record.grindstone = null;
-                    record.timer = 20;
                 }
                 break;
             }

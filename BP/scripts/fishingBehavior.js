@@ -12,7 +12,9 @@ import {
     spawnParticleSafe, 
     drawParticleLine, 
     pickRandomLoot,
-    distance 
+    distance,
+    setEntityLook,
+    isTargetUnreachable
 } from "./utils.js";
 import { findCastTarget, findWaterSurfaceY } from "./waterScanner.js";
 
@@ -449,7 +451,7 @@ export function findNearbyStrayCat(dimension, location, radius = FISHERMAN_CONFI
             maxDistance: radius
         });
         for (const cat of cats) {
-            if (!cat || !cat.isValid()) continue;
+            if (!cat || !cat.isValid() || isTargetUnreachable(cat)) continue;
             if (cat.hasTag("rpc:befriended")) continue;
 
             const d = distance(location, cat.location);
@@ -473,8 +475,7 @@ export function performFeedAndTameCat(villager, cat) {
     const cLoc = cat.location;
 
     try {
-        const rot = getLookRotation(villager.location, cLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, cLoc);
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -511,7 +512,7 @@ export function findNearbyCampfire(dimension, location, radius = FISHERMAN_CONFI
                 const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                 try {
                     const block = dimension.getBlock(pos);
-                    if (block && (block.typeId === FISHERMAN_CONFIG.CAMPFIRE_ID || block.typeId === FISHERMAN_CONFIG.SOUL_CAMPFIRE_ID)) {
+                    if (block && (block.typeId === FISHERMAN_CONFIG.CAMPFIRE_ID || block.typeId === FISHERMAN_CONFIG.SOUL_CAMPFIRE_ID) && !isTargetUnreachable(pos)) {
                         return { block, pos };
                     }
                 } catch {}
@@ -531,8 +532,7 @@ export function performCookFish(villager, campfirePos) {
     const dim = villager.dimension;
 
     try {
-        const rot = getLookRotation(villager.location, { x: campfirePos.x + 0.5, y: campfirePos.y + 0.5, z: campfirePos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, { x: campfirePos.x + 0.5, y: campfirePos.y + 0.5, z: campfirePos.z + 0.5 });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -573,7 +573,7 @@ export function findNearbyPondWater(dimension, location, radius = 14) {
                 const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                 try {
                     const block = dimension.getBlock(pos);
-                    if (block && block.typeId === "minecraft:water") {
+                    if (block && block.typeId === "minecraft:water" && !isTargetUnreachable(pos)) {
                         // Check if air above
                         const above = dimension.getBlock({ x: pos.x, y: pos.y + 1, z: pos.z });
                         if (above && above.isAir) {
@@ -597,8 +597,7 @@ export function performRestockFish(villager, waterPos) {
     const dim = villager.dimension;
 
     try {
-        const rot = getLookRotation(villager.location, { x: waterPos.x + 0.5, y: waterPos.y + 0.5, z: waterPos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, { x: waterPos.x + 0.5, y: waterPos.y + 0.5, z: waterPos.z + 0.5 });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 

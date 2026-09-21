@@ -7,7 +7,7 @@
 
 import { world } from "@minecraft/server";
 import { ARMORER_CONFIG } from "./config.js";
-import { distance, getLookRotation } from "./utils.js";
+import { distance, getLookRotation, smoothMoveTowards, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipIngot,
@@ -128,6 +128,9 @@ export class ArmorerManager {
             blastFurnace: null,
             golemSpot: null,
             raidGolemCooldown: 0,
+            step: 0,
+            stuckTicks: 0,
+            lastDist: 999,
             timer: 20
         });
     }
@@ -209,100 +212,142 @@ export class ArmorerManager {
             case ArmorerState.IDLE: {
                 record.timer--;
                 if (record.timer <= 0) {
-                    record.timer = 25;
+                    record.timer = 20;
                     equipIngot(villager);
 
-                    // 0. RAID DEFENSE PRIORITY: If raid / hostile assault detected and no Iron Golem nearby, build one!
-                    if (record.raidGolemCooldown <= 0) {
-                        const raidThreat = findNearbyRaidThreat(villager.dimension, villager.location, ARMORER_CONFIG.RAID_SEARCH_RADIUS || 24);
-                        if (raidThreat && !hasIronGolemNearby(villager.dimension, villager.location, ARMORER_CONFIG.RAID_GOLEM_BUILD_RADIUS || 24)) {
-                            const golemSpot = findNearbyGolemConstructionSpot(villager.dimension, villager.location, 10);
-                            if (golemSpot) {
-                                record.golemSpot = golemSpot;
-                                equipIronBlock(villager);
-                                const dist = distance(villager.location, golemSpot.center);
-                                if (dist <= 3.0) {
-                                    record.state = ArmorerState.BUILDING_RAID_GOLEM;
-                                    record.timer = 40;
-                                    record.raidGolemCooldown = ARMORER_CONFIG.GOLEM_BUILD_COOLDOWN_TICKS || 400;
-                                    performAssembleRaidGolem(villager, golemSpot);
-                                } else {
-                                    record.state = ArmorerState.APPROACHING_RAID_GOLEM_SPOT;
-                                    record.timer = 100;
+                    const startStep = (record.step || 0) % 6;
+                    let foundAction = false;
+
+                    for (let s = 0; s < 6; s++) {
+                        const currentStep = (startStep + s) % 6;
+
+                        // 0. RAID DEFENSE PRIORITY
+                        if (currentStep === 0 && record.raidGolemCooldown <= 0) {
+                            const raidThreat = findNearbyRaidThreat(villager.dimension, villager.location, ARMORER_CONFIG.RAID_SEARCH_RADIUS || 24);
+                            if (raidThreat && !hasIronGolemNearby(villager.dimension, villager.location, ARMORER_CONFIG.RAID_GOLEM_BUILD_RADIUS || 24)) {
+                                const golemSpot = findNearbyGolemConstructionSpot(villager.dimension, villager.location, 10);
+                                if (golemSpot && !isTargetUnreachable(golemSpot.center)) {
+                                    record.golemSpot = golemSpot;
+                                    equipIronBlock(villager);
+                                    const dist = distance(villager.location, golemSpot.center);
+                                    if (dist <= 3.0) {
+                                        record.state = ArmorerState.BUILDING_RAID_GOLEM;
+                                        record.timer = 40;
+                                        record.raidGolemCooldown = ARMORER_CONFIG.GOLEM_BUILD_COOLDOWN_TICKS || 400;
+                                        performAssembleRaidGolem(villager, golemSpot);
+                                    } else {
+                                        record.state = ArmorerState.APPROACHING_RAID_GOLEM_SPOT;
+                                        record.timer = 90;
+                                        record.stuckTicks = 0;
+                                        record.lastDist = dist;
+                                    }
+                                    record.step = 0;
+                                    foundAction = true;
+                                    break;
                                 }
+                            }
+                        }
+
+                        // 1. Primary: Scan for damaged Iron Golems to repair
+                        else if (currentStep === 1) {
+                            const golem = findNearbyDamagedGolem(villager.dimension, villager.location, ARMORER_CONFIG.GOLEM_SEARCH_RADIUS);
+                            if (golem && !isTargetUnreachable(golem.id)) {
+                                record.targetGolem = golem;
+                                const dist = distance(villager.location, golem.location);
+                                if (dist <= ARMORER_CONFIG.REPAIR_DISTANCE) {
+                                    record.state = ArmorerState.REPAIRING;
+                                    record.timer = ARMORER_CONFIG.REPAIR_ANIMATION_TICKS;
+                                } else {
+                                    record.state = ArmorerState.APPROACHING_GOLEM;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 1;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 2. Scan for unbuffed allies to fortify
+                        else if (currentStep === 2) {
+                            const ally = findNearbyUnbuffedAlly(villager.dimension, villager.location, ARMORER_CONFIG.BUFF_SEARCH_RADIUS);
+                            if (ally && !isTargetUnreachable(ally.id)) {
+                                record.targetAlly = ally;
+                                equipChestplate(villager);
+                                const dist = distance(villager.location, ally.location);
+                                if (dist <= 2.5) {
+                                    record.state = ArmorerState.FORTIFYING_ALLY;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = ArmorerState.APPROACHING_ALLY;
+                                    record.timer = 80;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 2;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 3. Golem Construction at blast furnace
+                        else if (currentStep === 3) {
+                            if (!hasIronGolemNearby(villager.dimension, villager.location, ARMORER_CONFIG.GOLEM_SUMMON_RADIUS)) {
+                                const furnace = findNearbyBlastFurnace(villager.dimension, villager.location, ARMORER_CONFIG.BLAST_FURNACE_SEARCH_RADIUS);
+                                if (furnace && !isTargetUnreachable(furnace.pos)) {
+                                    record.blastFurnace = furnace;
+                                    record.state = ArmorerState.APPROACHING_GOLEM_FORGE;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = distance(villager.location, furnace.pos);
+                                    record.step = 3;
+                                    foundAction = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 4. Secondary: Anvil hammering & maintenance
+                        else if (currentStep === 4 && Math.random() < 0.4) {
+                            const anvil = findNearbyAnvil(villager.dimension, villager.location, ARMORER_CONFIG.ANVIL_SEARCH_RADIUS);
+                            if (anvil && !isTargetUnreachable(anvil.pos)) {
+                                record.targetAnvil = anvil;
+                                const dist = distance(villager.location, anvil.pos);
+                                if (dist <= 2.5) {
+                                    record.state = ArmorerState.HAMMERING_ANVIL;
+                                    record.timer = 30;
+                                } else {
+                                    record.state = ArmorerState.APPROACHING_ANVIL;
+                                    record.timer = 80;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 4;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 5. Blast Furnace forging routine
+                        else if (currentStep === 5 && Math.random() < 0.4) {
+                            const furnace = findNearbyBlastFurnace(villager.dimension, villager.location, ARMORER_CONFIG.BLAST_FURNACE_SEARCH_RADIUS);
+                            if (furnace && !isTargetUnreachable(furnace.pos)) {
+                                record.blastFurnace = furnace;
+                                record.state = ArmorerState.APPROACHING_FURNACE;
+                                record.timer = 90;
+                                record.stuckTicks = 0;
+                                record.lastDist = distance(villager.location, furnace.pos);
+                                record.step = 5;
+                                foundAction = true;
                                 break;
                             }
                         }
                     }
 
-                    // 1. Primary: Scan for damaged Iron Golems to repair
-                    const golem = findNearbyDamagedGolem(villager.dimension, villager.location, ARMORER_CONFIG.GOLEM_SEARCH_RADIUS);
-                    if (golem) {
-                        record.targetGolem = golem;
-                        const dist = distance(villager.location, golem.location);
-                        if (dist <= ARMORER_CONFIG.REPAIR_DISTANCE) {
-                            record.state = ArmorerState.REPAIRING;
-                            record.timer = ARMORER_CONFIG.REPAIR_ANIMATION_TICKS;
-                        } else {
-                            record.state = ArmorerState.APPROACHING_GOLEM;
-                            record.timer = 100;
-                        }
-                        break;
-                    }
-
-                    // 2. Scan for unbuffed allies (villagers/player) to fortify with Resistance & Absorption
-                    const ally = findNearbyUnbuffedAlly(villager.dimension, villager.location, ARMORER_CONFIG.BUFF_SEARCH_RADIUS);
-                    if (ally) {
-                        record.targetAlly = ally;
-                        equipChestplate(villager);
-                        const dist = distance(villager.location, ally.location);
-                        if (dist <= 2.5) {
-                            record.state = ArmorerState.FORTIFYING_ALLY;
-                            record.timer = 25;
-                        } else {
-                            record.state = ArmorerState.APPROACHING_ALLY;
-                            record.timer = 90;
-                        }
-                        break;
-                    }
-
-                    // 3. Golem Construction: If no Iron Golem in 32 blocks, construct one at blast furnace!
-                    if (!hasIronGolemNearby(villager.dimension, villager.location, ARMORER_CONFIG.GOLEM_SUMMON_RADIUS)) {
-                        const furnace = findNearbyBlastFurnace(villager.dimension, villager.location, ARMORER_CONFIG.BLAST_FURNACE_SEARCH_RADIUS);
-                        if (furnace) {
-                            record.blastFurnace = furnace;
-                            record.state = ArmorerState.APPROACHING_GOLEM_FORGE;
-                            record.timer = 100;
-                            break;
-                        }
-                    }
-
-                    // 4. Secondary: Anvil hammering & maintenance
-                    if (Math.random() < 0.35) {
-                        const anvil = findNearbyAnvil(villager.dimension, villager.location, ARMORER_CONFIG.ANVIL_SEARCH_RADIUS);
-                        if (anvil) {
-                            record.targetAnvil = anvil;
-                            const dist = distance(villager.location, anvil.pos);
-                            if (dist <= 2.5) {
-                                record.state = ArmorerState.HAMMERING_ANVIL;
-                                record.timer = 30;
-                            } else {
-                                record.state = ArmorerState.APPROACHING_ANVIL;
-                                record.timer = 90;
-                            }
-                            break;
-                        }
-                    }
-
-                    // 5. Blast Furnace forging routine
-                    if (Math.random() < 0.4) {
-                        const furnace = findNearbyBlastFurnace(villager.dimension, villager.location, ARMORER_CONFIG.BLAST_FURNACE_SEARCH_RADIUS);
-                        if (furnace) {
-                            record.blastFurnace = furnace;
-                            record.state = ArmorerState.APPROACHING_FURNACE;
-                            record.timer = 100;
-                            break;
-                        }
+                    if (!foundAction) {
+                        record.step = 0;
+                        record.timer = 25;
                     }
                 }
                 break;
@@ -313,30 +358,31 @@ export class ArmorerManager {
                 if (!record.targetGolem || !record.targetGolem.isValid()) {
                     record.state = ArmorerState.IDLE;
                     record.targetGolem = null;
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
-                try {
-                    const gLoc = record.targetGolem.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, gLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = gLoc.x - villager.location.x;
-                    const dz = gLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = record.targetGolem.location;
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: ARMORER_CONFIG.REPAIR_DISTANCE });
 
-                const dist = distance(villager.location, record.targetGolem.location);
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
                 if (dist <= ARMORER_CONFIG.REPAIR_DISTANCE) {
                     record.state = ArmorerState.REPAIRING;
                     record.timer = ARMORER_CONFIG.REPAIR_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    record.state = ArmorerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetGolem.id, 400);
                     record.targetGolem = null;
-                    record.timer = 20;
+                    record.step = 2;
+                    record.state = ArmorerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -360,33 +406,34 @@ export class ArmorerManager {
                     record.state = ArmorerState.IDLE;
                     record.targetAlly = null;
                     equipIngot(villager);
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
                 if (record.timer % 20 === 0) equipChestplate(villager);
 
-                try {
-                    const aLoc = record.targetAlly.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, aLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = aLoc.x - villager.location.x;
-                    const dz = aLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = record.targetAlly.location;
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, record.targetAlly.location);
-                if (dist <= 2.5) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = ArmorerState.FORTIFYING_ALLY;
                     record.timer = 25;
-                } else if (record.timer <= 0) {
-                    record.state = ArmorerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetAlly.id, 400);
                     record.targetAlly = null;
                     equipIngot(villager);
-                    record.timer = 20;
+                    record.step = 3;
+                    record.state = ArmorerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -409,30 +456,31 @@ export class ArmorerManager {
                 record.timer--;
                 if (!record.targetAnvil) {
                     record.state = ArmorerState.IDLE;
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
-                try {
-                    const aPos = { x: record.targetAnvil.pos.x + 0.5, y: record.targetAnvil.pos.y, z: record.targetAnvil.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, aPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = aPos.x - villager.location.x;
-                    const dz = aPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.targetAnvil.pos.x + 0.5, y: record.targetAnvil.pos.y, z: record.targetAnvil.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, record.targetAnvil.pos);
-                if (dist <= 2.5) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = ArmorerState.HAMMERING_ANVIL;
                     record.timer = 30;
-                } else if (record.timer <= 0) {
-                    record.state = ArmorerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetAnvil.pos, 400);
                     record.targetAnvil = null;
-                    record.timer = 20;
+                    record.step = 5;
+                    record.state = ArmorerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -454,29 +502,31 @@ export class ArmorerManager {
                 record.timer--;
                 if (!record.blastFurnace) {
                     record.state = ArmorerState.IDLE;
+                    record.timer = 5;
                     break;
                 }
 
-                try {
-                    const fPos = { x: record.blastFurnace.pos.x + 0.5, y: record.blastFurnace.pos.y, z: record.blastFurnace.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, fPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = fPos.x - villager.location.x;
-                    const dz = fPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.blastFurnace.pos.x + 0.5, y: record.blastFurnace.pos.y, z: record.blastFurnace.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.6 });
 
-                const dist = distance(villager.location, record.blastFurnace.pos);
-                if (dist <= 2.8) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.6) {
                     record.state = ArmorerState.CONSTRUCTING_GOLEM;
                     record.timer = 35;
-                } else if (record.timer <= 0) {
-                    record.state = ArmorerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.blastFurnace.pos, 400);
                     record.blastFurnace = null;
-                    record.timer = 20;
+                    record.step = 4;
+                    record.state = ArmorerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -498,29 +548,31 @@ export class ArmorerManager {
                 record.timer--;
                 if (!record.blastFurnace) {
                     record.state = ArmorerState.IDLE;
+                    record.timer = 5;
                     break;
                 }
 
-                try {
-                    const fPos = { x: record.blastFurnace.pos.x + 0.5, y: record.blastFurnace.pos.y, z: record.blastFurnace.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, fPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = fPos.x - villager.location.x;
-                    const dz = fPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.blastFurnace.pos.x + 0.5, y: record.blastFurnace.pos.y, z: record.blastFurnace.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.6 });
 
-                const dist = distance(villager.location, record.blastFurnace.pos);
-                if (dist <= 2.8) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.6) {
                     record.state = ArmorerState.FORGING;
                     record.timer = 24;
-                } else if (record.timer <= 0) {
-                    record.state = ArmorerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.blastFurnace.pos, 400);
                     record.blastFurnace = null;
-                    record.timer = 20;
+                    record.step = 0;
+                    record.state = ArmorerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -543,34 +595,33 @@ export class ArmorerManager {
                 if (!record.golemSpot) {
                     record.state = ArmorerState.IDLE;
                     equipIngot(villager);
-                    record.timer = 15;
+                    record.timer = 5;
                     break;
                 }
 
                 const targetPos = { x: record.golemSpot.center.x + 0.5, y: record.golemSpot.center.y, z: record.golemSpot.center.z + 0.5 };
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        equipIronBlock(villager);
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.5 });
 
-                const dist = distance(villager.location, record.golemSpot.center);
-                if (dist <= 3.0) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.5) {
                     record.state = ArmorerState.BUILDING_RAID_GOLEM;
                     record.timer = 40;
                     record.raidGolemCooldown = ARMORER_CONFIG.GOLEM_BUILD_COOLDOWN_TICKS || 400;
                     performAssembleRaidGolem(villager, record.golemSpot);
-                } else if (record.timer <= 0) {
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.golemSpot.center, 400);
                     record.golemSpot = null;
                     record.state = ArmorerState.IDLE;
                     equipIngot(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }

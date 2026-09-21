@@ -6,7 +6,7 @@
 
 import { system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { CLERIC_CONFIG, FLETCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
 
 /**
  * Equips potion or splash potion in the cleric's main hand.
@@ -82,7 +82,7 @@ export function findNearbyInjuredAlly(dimension, location, radius = CLERIC_CONFI
             });
 
             for (const entity of entities) {
-                if (!entity || !entity.isValid()) continue;
+                if (!entity || !entity.isValid() || isTargetUnreachable(entity)) continue;
 
                 const healthComp = entity.getComponent("minecraft:health");
                 if (healthComp && healthComp.currentValue < healthComp.effectiveMax) {
@@ -119,7 +119,7 @@ export function findNearbyBrewingStand(dimension, location, radius = 16) {
                 const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
                 try {
                     const block = dimension.getBlock(pos);
-                    if (block && block.typeId === CLERIC_CONFIG.BREWING_STAND_ID) {
+                    if (block && block.typeId === CLERIC_CONFIG.BREWING_STAND_ID && !isTargetUnreachable(pos)) {
                         return { block, pos };
                     }
                 } catch {}
@@ -143,8 +143,7 @@ export function performHeal(villager, ally) {
 
     // 1. Turn to face target
     try {
-        const rot = getLookRotation(villager.location, allyLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, allyLoc);
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -177,8 +176,7 @@ export function performBrew(villager, brewingStandInfo) {
     const pos = brewingStandInfo.pos;
 
     try {
-        const rot = getLookRotation(villager.location, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -269,7 +267,7 @@ export function findNearbyPillagersAndMonsters(dimension, location, radius = CLE
             });
 
             for (const mob of mobs) {
-                if (!mob || !mob.isValid()) continue;
+                if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
 
                 const health = mob.getComponent("minecraft:health");
                 if (health && health.currentValue <= 0) continue;
@@ -300,8 +298,7 @@ export function performOffensiveSplashPotion(villager, target) {
     const vLoc = villager.location;
 
     try {
-        const rot = getLookRotation(vLoc, tLoc);
-        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, tLoc);
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -401,7 +398,7 @@ export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CO
                 maxDistance: radius
             });
             for (const entity of entities) {
-                if (entity && entity.isValid() && !entity.hasTag("rpc:curing")) {
+                if (entity && entity.isValid() && !entity.hasTag("rpc:curing") && !isTargetUnreachable(entity)) {
                     checkedIds.add(entity.id);
                     const d = distance(location, entity.location);
                     if (d < closestDist) {
@@ -422,7 +419,7 @@ export function findNearbyZombieVillager(dimension, location, radius = CLERIC_CO
                 maxDistance: radius
             });
             for (const entity of entities) {
-                if (entity && entity.isValid() && !entity.hasTag("rpc:curing") && !checkedIds.has(entity.id)) {
+                if (entity && entity.isValid() && !entity.hasTag("rpc:curing") && !checkedIds.has(entity.id) && !isTargetUnreachable(entity)) {
                     const d = distance(location, entity.location);
                     if (d < closestDist) {
                         closestDist = d;
@@ -449,8 +446,7 @@ export function performCureZombieVillager(villager, zombieVillager) {
     const zLoc = zombieVillager.location;
 
     try {
-        const rot = getLookRotation(villager.location, zLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, zLoc);
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 

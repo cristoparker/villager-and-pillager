@@ -7,7 +7,7 @@
 
 import { world } from "@minecraft/server";
 import { FARMER_CONFIG } from "./config.js";
-import { distance, getLookRotation } from "./utils.js";
+import { distance, getLookRotation, smoothMoveTowards, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 import {
     equipHoe,
@@ -173,6 +173,9 @@ export class FarmerManager {
             bedCooldown: Math.floor(Math.random() * 400) + 200,
             chestCooldown: Math.floor(Math.random() * 600) + 400,
             foodShareCooldown: Math.floor(Math.random() * 200) + 100,
+            step: 0,
+            stuckTicks: 0,
+            lastDist: 999,
             timer: 20
         });
     }
@@ -313,197 +316,235 @@ export class FarmerManager {
             case FarmerState.IDLE: {
                 record.timer--;
                 if (record.timer <= 0) {
-                    record.timer = 25;
+                    record.timer = 20;
                     equipHoe(villager);
 
-                    // 1. Primary: Scan for ripe crops to harvest
-                    const ripeCrop = findNearbyRipeCrop(villager.dimension, villager.location, FARMER_CONFIG.CROP_SEARCH_RADIUS);
-                    if (ripeCrop) {
-                        record.targetCrop = ripeCrop;
-                        const dist = distance(villager.location, ripeCrop.pos);
-                        if (dist <= FARMER_CONFIG.CROP_HARVEST_DISTANCE) {
-                            record.state = FarmerState.HARVESTING;
-                            record.timer = FARMER_CONFIG.HARVEST_ANIMATION_TICKS;
-                        } else {
-                            record.state = FarmerState.APPROACHING_CROP;
-                            record.timer = 100;
-                        }
-                        break;
-                    }
+                    const startStep = (record.step || 0) % 10;
+                    let foundAction = false;
 
-                    // 2. Scan for empty hoed farmland to plant crops/seeds
-                    const emptyFarmland = findNearbyEmptyFarmland(villager.dimension, villager.location, FARMER_CONFIG.CROP_SEARCH_RADIUS);
-                    if (emptyFarmland) {
-                        record.emptyFarmland = emptyFarmland;
-                        const dist = distance(villager.location, emptyFarmland.pos);
-                        if (dist <= 2.5) {
-                            record.state = FarmerState.PLANTING_CROP;
-                            record.timer = 20;
-                        } else {
-                            record.state = FarmerState.APPROACHING_EMPTY_FARMLAND;
-                            record.timer = 100;
-                        }
-                        break;
-                    }
+                    for (let s = 0; s < 10; s++) {
+                        const currentStep = (startStep + s) % 10;
 
-                    // 3. Scan for baby animals (cows, sheep, chickens, pigs) to feed and accelerate growth
-                    const babyAnimal = findNearbyBabyAnimals(villager.dimension, villager.location, FARMER_CONFIG.ANIMAL_SEARCH_RADIUS);
-                    if (babyAnimal) {
-                        record.targetBabyAnimal = babyAnimal;
-                        equipFoodItem(villager, babyAnimal.speciesDef.foodItemId);
-                        const dist = distance(villager.location, babyAnimal.pos);
-                        if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE) {
-                            record.state = FarmerState.FEEDING_BABY_ANIMAL;
-                            record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
-                        } else {
-                            record.state = FarmerState.APPROACHING_BABY_ANIMAL;
-                            record.timer = 100;
-                        }
-                        break;
-                    }
-
-                    // 4. Scan for breedable adult animal pairs (cows, sheep, chickens, pigs) to breed
-                    const breedPair = findNearbyBreedableAnimalPair(villager.dimension, villager.location, FARMER_CONFIG.ANIMAL_SEARCH_RADIUS);
-                    if (breedPair) {
-                        record.targetBreedPair = breedPair;
-                        equipFoodItem(villager, breedPair.speciesDef.foodItemId);
-                        const dist = distance(villager.location, breedPair.centerPos);
-                        if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE + 1.0) {
-                            record.state = FarmerState.BREEDING_ANIMALS;
-                            record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
-                        } else {
-                            record.state = FarmerState.APPROACHING_BREED_PAIR;
-                            record.timer = 100;
-                        }
-                        break;
-                    }
-
-                    // 5. Scan for un-grown crops to fertilize with bone meal
-                    const ungrownCrop = findNearbyUngrownCrop(villager.dimension, villager.location, 14);
-                    if (ungrownCrop) {
-                        record.targetUngrownCrop = ungrownCrop;
-                        const dist = distance(villager.location, ungrownCrop.pos);
-                        if (dist <= 2.5) {
-                            record.state = FarmerState.BONEMEALING_CROP;
-                            record.timer = 20;
-                        } else {
-                            record.state = FarmerState.APPROACHING_BONEMEAL_CROP;
-                            record.timer = 90;
-                        }
-                        break;
-                    }
-
-                    // 6. Scan for saplings to bone meal
-                    const sapling = findNearbySapling(villager.dimension, villager.location, FARMER_CONFIG.BONEMEAL_SEARCH_RADIUS);
-                    if (sapling) {
-                        record.targetSapling = sapling;
-                        const dist = distance(villager.location, sapling.pos);
-                        if (dist <= 2.5) {
-                            record.state = FarmerState.BONEMEALING_SAPLING;
-                            record.timer = 25;
-                        } else {
-                            record.state = FarmerState.APPROACHING_BONEMEAL_SAPLING;
-                            record.timer = 90;
-                        }
-                        break;
-                    }
-
-                    // 7. Free Bread Sharing: Farmers share bread with nearby villagers so everyone can breed in Minecraft's own breeding system!
-                    if (record.foodShareCooldown <= 0) {
-                        const villagerToFeed = findNearbyVillagersToFeed(villager.dimension, villager.location, FARMER_CONFIG.FOOD_SHARE_RADIUS);
-                        if (villagerToFeed) {
-                            record.targetFeedVillager = villagerToFeed;
-                            equipItem(villager, "minecraft:bread");
-                            const dist = distance(villager.location, villagerToFeed.location);
-                            if (dist <= 2.5) {
-                                record.state = FarmerState.FEEDING_VILLAGER;
-                                record.timer = 20;
-                            } else {
-                                record.state = FarmerState.APPROACHING_VILLAGER_FEED;
-                                record.timer = 80;
+                        // 0. Primary: Scan for ripe crops to harvest
+                        if (currentStep === 0) {
+                            const ripeCrop = findNearbyRipeCrop(villager.dimension, villager.location, FARMER_CONFIG.CROP_SEARCH_RADIUS);
+                            if (ripeCrop && !isTargetUnreachable(ripeCrop.pos)) {
+                                record.targetCrop = ripeCrop;
+                                const dist = distance(villager.location, ripeCrop.pos);
+                                if (dist <= FARMER_CONFIG.CROP_HARVEST_DISTANCE) {
+                                    record.state = FarmerState.HARVESTING;
+                                    record.timer = FARMER_CONFIG.HARVEST_ANIMATION_TICKS;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_CROP;
+                                    record.timer = 100;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 0;
+                                foundAction = true;
+                                break;
                             }
-                            break;
                         }
-                    }
 
-                    // 8. Farm Chest Management (Strict 20-block radius rule)
-                    // If a chest is found within 20 blocks: DO NOT place a new chest!
-                    // Instead, use the chest to deposit harvested produce and organize storage.
-                    // If NO chest is found in 20 blocks: place 1 community chest for everyone!
-                    const chest = findNearbyChest(villager.dimension, villager.location, FARMER_CONFIG.CHEST_SEARCH_RADIUS);
-                    if (chest) {
-                        // Chest found within 20 blocks: NEVER place a new chest!
-                        if (Math.random() < 0.35) {
-                            record.targetChest = chest;
-                            equipItem(villager, "minecraft:wheat");
-                            const dist = distance(villager.location, chest.pos);
-                            if (dist <= FARMER_CONFIG.CHEST_DEPOSIT_DISTANCE) {
-                                record.state = FarmerState.DEPOSITING_CHEST;
-                                record.timer = 25;
-                            } else {
-                                record.state = FarmerState.APPROACHING_CHEST_DEPOSIT;
-                                record.timer = 90;
-                            }
-                            break;
-                        }
-                    } else {
-                        // NO chest within 20 blocks! Place 1 community chest for everyone to use.
-                        if (record.chestCooldown <= 0) {
-                            const chestSpot = findNearbyChestPlacementSpot(villager.dimension, villager.location, 4);
-                            if (chestSpot) {
-                                record.chestSpot = chestSpot;
-                                equipItem(villager, "minecraft:chest");
-                                const dist = distance(villager.location, chestSpot.pos);
-                                if (dist <= 2.8) {
-                                    record.state = FarmerState.PLACING_CHEST;
+                        // 1. Scan for empty hoed farmland to plant crops/seeds
+                        else if (currentStep === 1) {
+                            const emptyFarmland = findNearbyEmptyFarmland(villager.dimension, villager.location, FARMER_CONFIG.CROP_SEARCH_RADIUS);
+                            if (emptyFarmland && !isTargetUnreachable(emptyFarmland.pos)) {
+                                record.emptyFarmland = emptyFarmland;
+                                const dist = distance(villager.location, emptyFarmland.pos);
+                                if (dist <= 2.5) {
+                                    record.state = FarmerState.PLANTING_CROP;
                                     record.timer = 20;
                                 } else {
-                                    record.state = FarmerState.APPROACHING_CHEST_SPOT;
-                                    record.timer = 80;
+                                    record.state = FarmerState.APPROACHING_EMPTY_FARMLAND;
+                                    record.timer = 100;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
                                 }
+                                record.step = 1;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 2. Scan for baby animals (cows, sheep, chickens, pigs) to feed and accelerate growth
+                        else if (currentStep === 2) {
+                            const babyAnimal = findNearbyBabyAnimals(villager.dimension, villager.location, FARMER_CONFIG.ANIMAL_SEARCH_RADIUS);
+                            if (babyAnimal && !isTargetUnreachable(babyAnimal.entity.id)) {
+                                record.targetBabyAnimal = babyAnimal;
+                                equipFoodItem(villager, babyAnimal.speciesDef.foodItemId);
+                                const dist = distance(villager.location, babyAnimal.pos);
+                                if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE) {
+                                    record.state = FarmerState.FEEDING_BABY_ANIMAL;
+                                    record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_BABY_ANIMAL;
+                                    record.timer = 100;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 2;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 3. Scan for breedable adult animal pairs (cows, sheep, chickens, pigs) to breed
+                        else if (currentStep === 3) {
+                            const breedPair = findNearbyBreedableAnimalPair(villager.dimension, villager.location, FARMER_CONFIG.ANIMAL_SEARCH_RADIUS);
+                            if (breedPair && !isTargetUnreachable(breedPair.animalA.id) && !isTargetUnreachable(breedPair.animalB.id)) {
+                                record.targetBreedPair = breedPair;
+                                equipFoodItem(villager, breedPair.speciesDef.foodItemId);
+                                const dist = distance(villager.location, breedPair.centerPos);
+                                if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE + 1.0) {
+                                    record.state = FarmerState.BREEDING_ANIMALS;
+                                    record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_BREED_PAIR;
+                                    record.timer = 100;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 3;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 4. Scan for un-grown crops to fertilize with bone meal
+                        else if (currentStep === 4) {
+                            const ungrownCrop = findNearbyUngrownCrop(villager.dimension, villager.location, 14);
+                            if (ungrownCrop && !isTargetUnreachable(ungrownCrop.pos)) {
+                                record.targetUngrownCrop = ungrownCrop;
+                                const dist = distance(villager.location, ungrownCrop.pos);
+                                if (dist <= 2.5) {
+                                    record.state = FarmerState.BONEMEALING_CROP;
+                                    record.timer = 20;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_BONEMEAL_CROP;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 4;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 5. Scan for saplings to bone meal
+                        else if (currentStep === 5) {
+                            const sapling = findNearbySapling(villager.dimension, villager.location, FARMER_CONFIG.BONEMEAL_SEARCH_RADIUS);
+                            if (sapling && !isTargetUnreachable(sapling.pos)) {
+                                record.targetSapling = sapling;
+                                const dist = distance(villager.location, sapling.pos);
+                                if (dist <= 2.5) {
+                                    record.state = FarmerState.BONEMEALING_SAPLING;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_BONEMEAL_SAPLING;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 5;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 6. Free Bread Sharing
+                        else if (currentStep === 6 && record.foodShareCooldown <= 0) {
+                            const villagerToFeed = findNearbyVillagersToFeed(villager.dimension, villager.location, FARMER_CONFIG.FOOD_SHARE_RADIUS);
+                            if (villagerToFeed && !isTargetUnreachable(villagerToFeed.id)) {
+                                record.targetFeedVillager = villagerToFeed;
+                                equipItem(villager, "minecraft:bread");
+                                const dist = distance(villager.location, villagerToFeed.location);
+                                if (dist <= 2.5) {
+                                    record.state = FarmerState.FEEDING_VILLAGER;
+                                    record.timer = 20;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_VILLAGER_FEED;
+                                    record.timer = 80;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 6;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 7. Farm Chest Management
+                        else if (currentStep === 7) {
+                            const chest = findNearbyChest(villager.dimension, villager.location, FARMER_CONFIG.CHEST_SEARCH_RADIUS);
+                            if (chest && !isTargetUnreachable(chest.pos)) {
+                                if (Math.random() < 0.35) {
+                                    record.targetChest = chest;
+                                    equipItem(villager, "minecraft:wheat");
+                                    const dist = distance(villager.location, chest.pos);
+                                    if (dist <= FARMER_CONFIG.CHEST_DEPOSIT_DISTANCE) {
+                                        record.state = FarmerState.DEPOSITING_CHEST;
+                                        record.timer = 25;
+                                    } else {
+                                        record.state = FarmerState.APPROACHING_CHEST_DEPOSIT;
+                                        record.timer = 90;
+                                        record.stuckTicks = 0;
+                                        record.lastDist = dist;
+                                    }
+                                    record.step = 7;
+                                    foundAction = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 8. Composter
+                        else if (currentStep === 8 && Math.random() < 0.35) {
+                            const composter = findNearbyComposter(villager.dimension, villager.location, 16);
+                            if (composter && !isTargetUnreachable(composter.pos)) {
+                                record.composter = composter;
+                                const dist = distance(villager.location, composter.pos);
+                                if (dist <= 2.8) {
+                                    record.state = FarmerState.COMPOSTING;
+                                    record.timer = 20;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_COMPOSTER;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 8;
+                                foundAction = true;
+                                break;
+                            }
+                        }
+
+                        // 9. Flower planting
+                        else if (currentStep === 9 && Math.random() < 0.3) {
+                            const flowerSpot = findNearbyFlowerPlantingSpot(villager.dimension, villager.location, FARMER_CONFIG.FLOWER_SEARCH_RADIUS);
+                            if (flowerSpot && !isTargetUnreachable(flowerSpot.pos)) {
+                                record.flowerSpot = flowerSpot;
+                                const dist = distance(villager.location, flowerSpot.pos);
+                                if (dist <= 2.6) {
+                                    record.state = FarmerState.PLANTING_FLOWER;
+                                    record.timer = 22;
+                                } else {
+                                    record.state = FarmerState.APPROACHING_FLOWER_SPOT;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastDist = dist;
+                                }
+                                record.step = 9;
+                                foundAction = true;
                                 break;
                             }
                         }
                     }
 
-                    // 9. Chance-based secondary tasks: flowers, saplings, composter
-                    const roll = Math.random();
-                    if (roll < 0.35) {
-                        const flowerSpot = findNearbyFlowerPlantingSpot(villager.dimension, villager.location, FARMER_CONFIG.FLOWER_SEARCH_RADIUS);
-                        if (flowerSpot) {
-                            record.flowerSpot = flowerSpot;
-                            const dist = distance(villager.location, flowerSpot.pos);
-                            if (dist <= 2.5) {
-                                record.state = FarmerState.PLANTING_FLOWER;
-                                record.timer = 22;
-                            } else {
-                                record.state = FarmerState.APPROACHING_FLOWER_SPOT;
-                                record.timer = 80;
-                            }
-                            break;
-                        }
-                    } else if (roll < 0.70) {
-                        const saplingSpot = findNearbySaplingPlantingSpot(villager.dimension, villager.location, FARMER_CONFIG.SAPLING_SEARCH_RADIUS);
-                        if (saplingSpot) {
-                            record.saplingSpot = saplingSpot;
-                            const dist = distance(villager.location, saplingSpot.pos);
-                            if (dist <= 2.5) {
-                                record.state = FarmerState.PLANTING_SAPLING;
-                                record.timer = 22;
-                            } else {
-                                record.state = FarmerState.APPROACHING_SAPLING_SPOT;
-                                record.timer = 80;
-                            }
-                            break;
-                        }
-                    } else {
-                        const composter = findNearbyComposter(villager.dimension, villager.location, 14);
-                        if (composter) {
-                            record.composter = composter;
-                            record.state = FarmerState.APPROACHING_COMPOSTER;
-                            record.timer = 100;
-                            break;
-                        }
+                    if (!foundAction) {
+                        record.step = 0;
+                        record.timer = 25;
                     }
                 }
                 break;
@@ -514,36 +555,31 @@ export class FarmerManager {
                 if (!record.targetCrop || !record.targetCrop.block) {
                     record.state = FarmerState.IDLE;
                     record.targetCrop = null;
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
-                // Face crop and actively walk towards it!
-                try {
-                    const targetPos = { x: record.targetCrop.pos.x + 0.5, y: record.targetCrop.pos.y, z: record.targetCrop.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.targetCrop.pos.x + 0.5, y: record.targetCrop.pos.y, z: record.targetCrop.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: FARMER_CONFIG.CROP_HARVEST_DISTANCE });
 
-                const dist = distance(villager.location, record.targetCrop.pos);
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
                 if (dist <= FARMER_CONFIG.CROP_HARVEST_DISTANCE) {
                     record.state = FarmerState.HARVESTING;
                     record.timer = FARMER_CONFIG.HARVEST_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    if (dist <= 4.0) {
-                        record.state = FarmerState.HARVESTING;
-                        record.timer = FARMER_CONFIG.HARVEST_ANIMATION_TICKS;
-                    } else {
-                        record.state = FarmerState.IDLE;
-                        record.targetCrop = null;
-                        record.timer = 20;
-                    }
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetCrop.pos, 400);
+                    record.targetCrop = null;
+                    record.step = 1;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -566,31 +602,31 @@ export class FarmerManager {
                 if (!record.emptyFarmland || !record.emptyFarmland.pos) {
                     record.state = FarmerState.IDLE;
                     record.emptyFarmland = null;
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
-                // Face hoed farmland and walk towards it!
-                try {
-                    const targetPos = { x: record.emptyFarmland.pos.x + 0.5, y: record.emptyFarmland.pos.y, z: record.emptyFarmland.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.emptyFarmland.pos.x + 0.5, y: record.emptyFarmland.pos.y, z: record.emptyFarmland.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.2 });
 
-                const dist = distance(villager.location, record.emptyFarmland.pos);
-                if (dist <= 2.5) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.2) {
                     record.state = FarmerState.PLANTING_CROP;
                     record.timer = 20;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.emptyFarmland.pos, 400);
                     record.emptyFarmland = null;
-                    record.timer = 20;
+                    record.step = 2;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -614,7 +650,7 @@ export class FarmerManager {
                     record.state = FarmerState.IDLE;
                     record.targetBabyAnimal = null;
                     equipHoe(villager);
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
@@ -623,27 +659,28 @@ export class FarmerManager {
                     equipFoodItem(villager, record.targetBabyAnimal.speciesDef.foodItemId);
                 }
 
-                try {
-                    const targetPos = baby.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = baby.location;
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: FARMER_CONFIG.ANIMAL_FEED_DISTANCE });
 
-                const dist = distance(villager.location, baby.location);
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
                 if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE) {
                     record.state = FarmerState.FEEDING_BABY_ANIMAL;
                     record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(baby.id, 400);
                     record.targetBabyAnimal = null;
                     equipHoe(villager);
-                    record.timer = 20;
+                    record.step = 3;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -668,7 +705,7 @@ export class FarmerManager {
                     record.state = FarmerState.IDLE;
                     record.targetBreedPair = null;
                     equipHoe(villager);
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
@@ -677,26 +714,28 @@ export class FarmerManager {
                     equipFoodItem(villager, record.targetBreedPair.speciesDef.foodItemId);
                 }
 
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: FARMER_CONFIG.ANIMAL_FEED_DISTANCE + 0.8 });
 
-                const dist = distance(villager.location, targetPos);
-                if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE + 1.0) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= FARMER_CONFIG.ANIMAL_FEED_DISTANCE + 0.8) {
                     record.state = FarmerState.BREEDING_ANIMALS;
                     record.timer = FARMER_CONFIG.ANIMAL_FEED_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetBreedPair.animalA.id, 400);
+                    markTargetUnreachable(record.targetBreedPair.animalB.id, 400);
                     record.targetBreedPair = null;
                     equipHoe(villager);
-                    record.timer = 20;
+                    record.step = 4;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -720,31 +759,31 @@ export class FarmerManager {
                 if (!record.targetUngrownCrop || !record.targetUngrownCrop.pos) {
                     record.state = FarmerState.IDLE;
                     record.targetUngrownCrop = null;
-                    record.timer = 10;
+                    record.timer = 5;
                     break;
                 }
 
-                // Face un-grown crop and walk towards it!
-                try {
-                    const targetPos = { x: record.targetUngrownCrop.pos.x + 0.5, y: record.targetUngrownCrop.pos.y, z: record.targetUngrownCrop.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.targetUngrownCrop.pos.x + 0.5, y: record.targetUngrownCrop.pos.y, z: record.targetUngrownCrop.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.2 });
 
-                const dist = distance(villager.location, record.targetUngrownCrop.pos);
-                if (dist <= 2.5) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.2) {
                     record.state = FarmerState.BONEMEALING_CROP;
                     record.timer = 20;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetUngrownCrop.pos, 400);
                     record.targetUngrownCrop = null;
-                    record.timer = 20;
+                    record.step = 5;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -766,30 +805,31 @@ export class FarmerManager {
                 record.timer--;
                 if (!record.targetSapling) {
                     record.state = FarmerState.IDLE;
+                    record.timer = 5;
                     break;
                 }
 
-                // Face sapling and walk towards it!
-                try {
-                    const targetPos = { x: record.targetSapling.pos.x + 0.5, y: record.targetSapling.pos.y, z: record.targetSapling.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.targetSapling.pos.x + 0.5, y: record.targetSapling.pos.y, z: record.targetSapling.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, record.targetSapling.pos);
-                if (dist <= 2.6) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = FarmerState.BONEMEALING_SAPLING;
                     record.timer = 25;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetSapling.pos, 400);
                     record.targetSapling = null;
-                    record.timer = 20;
+                    record.step = 6;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -811,29 +851,31 @@ export class FarmerManager {
                 record.timer--;
                 if (!record.flowerSpot) {
                     record.state = FarmerState.IDLE;
+                    record.timer = 5;
                     break;
                 }
 
-                try {
-                    const targetPos = { x: record.flowerSpot.pos.x + 0.5, y: record.flowerSpot.pos.y, z: record.flowerSpot.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.flowerSpot.pos.x + 0.5, y: record.flowerSpot.pos.y, z: record.flowerSpot.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, record.flowerSpot.pos);
-                if (dist <= 2.6) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = FarmerState.PLANTING_FLOWER;
                     record.timer = 22;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.flowerSpot.pos, 400);
                     record.flowerSpot = null;
-                    record.timer = 20;
+                    record.step = 7;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -855,29 +897,31 @@ export class FarmerManager {
                 record.timer--;
                 if (!record.saplingSpot) {
                     record.state = FarmerState.IDLE;
+                    record.timer = 5;
                     break;
                 }
 
-                try {
-                    const targetPos = { x: record.saplingSpot.pos.x + 0.5, y: record.saplingSpot.pos.y, z: record.saplingSpot.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.saplingSpot.pos.x + 0.5, y: record.saplingSpot.pos.y, z: record.saplingSpot.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, record.saplingSpot.pos);
-                if (dist <= 2.6) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = FarmerState.PLANTING_SAPLING;
                     record.timer = 22;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.saplingSpot.pos, 400);
                     record.saplingSpot = null;
-                    record.timer = 20;
+                    record.step = 8;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -899,29 +943,31 @@ export class FarmerManager {
                 record.timer--;
                 if (!record.composter) {
                     record.state = FarmerState.IDLE;
+                    record.timer = 5;
                     break;
                 }
 
-                try {
-                    const targetPos = { x: record.composter.pos.x + 0.5, y: record.composter.pos.y, z: record.composter.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.composter.pos.x + 0.5, y: record.composter.pos.y, z: record.composter.pos.z + 0.5 };
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.6 });
 
-                const dist = distance(villager.location, record.composter.pos);
-                if (dist <= 2.8) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.6) {
                     record.state = FarmerState.COMPOSTING;
                     record.timer = 20;
-                } else if (record.timer <= 0) {
-                    record.state = FarmerState.IDLE;
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.composter.pos, 400);
                     record.composter = null;
-                    record.timer = 20;
+                    record.step = 0;
+                    record.state = FarmerState.IDLE;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -944,32 +990,32 @@ export class FarmerManager {
                 if (!record.chestSpot) {
                     record.state = FarmerState.IDLE;
                     equipHoe(villager);
-                    record.timer = 15;
+                    record.timer = 10;
                     break;
                 }
 
-                try {
-                    const targetPos = { x: record.chestSpot.pos.x + 0.5, y: record.chestSpot.pos.y, z: record.chestSpot.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        equipItem(villager, "minecraft:chest");
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.chestSpot.pos.x + 0.5, y: record.chestSpot.pos.y, z: record.chestSpot.pos.z + 0.5 };
+                equipItem(villager, "minecraft:chest");
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, record.chestSpot.pos);
-                if (dist <= 2.5) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = FarmerState.PLACING_CHEST;
                     record.timer = 25;
-                } else if (record.timer <= 0) {
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.chestSpot.pos, 400);
                     record.chestSpot = null;
                     record.state = FarmerState.IDLE;
                     equipHoe(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -994,32 +1040,32 @@ export class FarmerManager {
                 if (!record.targetChest) {
                     record.state = FarmerState.IDLE;
                     equipHoe(villager);
-                    record.timer = 15;
+                    record.timer = 10;
                     break;
                 }
 
-                try {
-                    const targetPos = { x: record.targetChest.pos.x + 0.5, y: record.targetChest.pos.y, z: record.targetChest.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        equipItem(villager, "minecraft:wheat");
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.targetChest.pos.x + 0.5, y: record.targetChest.pos.y, z: record.targetChest.pos.z + 0.5 };
+                equipItem(villager, "minecraft:wheat");
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: FARMER_CONFIG.CHEST_DEPOSIT_DISTANCE });
 
-                const dist = distance(villager.location, record.targetChest.pos);
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
                 if (dist <= FARMER_CONFIG.CHEST_DEPOSIT_DISTANCE) {
                     record.state = FarmerState.DEPOSITING_CHEST;
                     record.timer = 25;
-                } else if (record.timer <= 0) {
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetChest.pos, 400);
                     record.targetChest = null;
                     record.state = FarmerState.IDLE;
                     equipHoe(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -1044,32 +1090,32 @@ export class FarmerManager {
                 if (!record.bedSpot) {
                     record.state = FarmerState.IDLE;
                     equipHoe(villager);
-                    record.timer = 15;
+                    record.timer = 10;
                     break;
                 }
 
-                try {
-                    const targetPos = { x: record.bedSpot.footPos.x + 0.5, y: record.bedSpot.footPos.y, z: record.bedSpot.footPos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        equipItem(villager, "minecraft:bed");
-                    }
-                    const dx = targetPos.x - villager.location.x;
-                    const dz = targetPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const targetPos = { x: record.bedSpot.footPos.x + 0.5, y: record.bedSpot.footPos.y, z: record.bedSpot.footPos.z + 0.5 };
+                equipItem(villager, "minecraft:bed");
+                const dist = smoothMoveTowards(villager, targetPos, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, record.bedSpot.footPos);
-                if (dist <= 2.5) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = FarmerState.PLACING_BED;
                     record.timer = 25;
-                } else if (record.timer <= 0) {
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.bedSpot.footPos, 400);
                     record.bedSpot = null;
                     record.state = FarmerState.IDLE;
                     equipHoe(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }
@@ -1095,32 +1141,32 @@ export class FarmerManager {
                     record.state = FarmerState.IDLE;
                     record.targetFeedVillager = null;
                     equipHoe(villager);
-                    record.timer = 15;
+                    record.timer = 10;
                     break;
                 }
 
                 const targetLoc = record.targetFeedVillager.location;
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, targetLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        equipItem(villager, "minecraft:bread");
-                    }
-                    const dx = targetLoc.x - villager.location.x;
-                    const dz = targetLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                equipItem(villager, "minecraft:bread");
+                const dist = smoothMoveTowards(villager, targetLoc, { speed: 0.13, stopDistance: 2.4 });
 
-                const dist = distance(villager.location, targetLoc);
-                if (dist <= 2.5) {
+                if (Math.abs(dist - (record.lastDist || dist)) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastDist = dist;
+                }
+
+                if (dist <= 2.4) {
                     record.state = FarmerState.FEEDING_VILLAGER;
                     record.timer = 20;
-                } else if (record.timer <= 0) {
+                    record.stuckTicks = 0;
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    markTargetUnreachable(record.targetFeedVillager.id, 400);
                     record.targetFeedVillager = null;
                     record.state = FarmerState.IDLE;
                     equipHoe(villager);
-                    record.timer = 15;
+                    record.timer = 1;
+                    record.stuckTicks = 0;
                 }
                 break;
             }

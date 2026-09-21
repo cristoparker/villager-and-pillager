@@ -6,7 +6,7 @@
 
 import { system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { BUTCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
 
 /**
  * Equips cleaver or iron axe in the butcher's main hand.
@@ -95,7 +95,7 @@ export function findNearbyPrey(dimension, location, radius = BUTCHER_CONFIG.ANIM
     let closestDist = Infinity;
 
     for (const animal of animals) {
-        if (isValidPrey(animal)) {
+        if (isValidPrey(animal) && !isTargetUnreachable(animal)) {
             const d = distance(location, animal.location);
             if (d < closestDist) {
                 closestDist = d;
@@ -195,8 +195,7 @@ export function performSlaughter(villager, animal, onLootCollected = null) {
 
     // 1. Turn butcher to face animal
     try {
-        const rot = getLookRotation(villager.location, aLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+        setEntityLook(villager, aLoc);
     } catch {}
 
     // 2. Play arm strike animation
@@ -302,12 +301,17 @@ export function findNearestSmoker(dimension, location, radius = BUTCHER_CONFIG.S
 
                         const id = block.typeId;
                         if (id === "minecraft:smoker" || id === "minecraft:lit_smoker") {
-                            return {
+                            const smokerPos = {
                                 x: originX + dx + 0.5,
                                 y: originY + dy,
-                                z: originZ + dz + 0.5,
-                                block: block
+                                z: originZ + dz + 0.5
                             };
+                            if (!isTargetUnreachable(smokerPos)) {
+                                return {
+                                    ...smokerPos,
+                                    block: block
+                                };
+                            }
                         }
                     } catch {}
                 }

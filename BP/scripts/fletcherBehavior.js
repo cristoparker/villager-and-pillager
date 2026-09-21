@@ -7,7 +7,7 @@
 
 import { ItemStack, EquipmentSlot } from "@minecraft/server";
 import { FLETCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
 import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
@@ -116,7 +116,7 @@ export function findNearbyMonsters(dimension, location, radius = FLETCHER_CONFIG
             });
 
             for (const mob of mobs) {
-                if (!mob || !mob.isValid()) continue;
+                if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
 
                 // Check health (don't shoot already dead mobs)
                 try {
@@ -144,7 +144,7 @@ export function findNearbyMonsters(dimension, location, radius = FLETCHER_CONFIG
                 });
 
                 for (const mob of mobs) {
-                    if (!mob || !mob.isValid()) continue;
+                    if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
                     // Do not target friendly entities or villagers
                     const typeId = mob.typeId;
                     if (typeId.includes("villager") || typeId.includes("player") || typeId.includes("iron_golem")) continue;
@@ -184,12 +184,14 @@ export function findNearbyTargetBlock(dimension, location, radius = FLETCHER_CON
         for (let dz = -r; dz <= r; dz += 2) {
             for (let dy = -2; dy <= 4; dy++) {
                 try {
+                    const bPos = { x: ox + dx + 0.5, y: oy + dy + 0.5, z: oz + dz + 0.5 };
+                    if (isTargetUnreachable(bPos)) continue;
                     const block = dimension.getBlock({ x: ox + dx, y: oy + dy, z: oz + dz });
                     if (block && (block.typeId === "minecraft:target" || block.typeId === "target")) {
-                        const d = distance(location, { x: ox + dx + 0.5, y: oy + dy + 0.5, z: oz + dz + 0.5 });
+                        const d = distance(location, bPos);
                         if (d < closestDist) {
                             closestDist = d;
-                            closest = { x: ox + dx + 0.5, y: oy + dy + 0.5, z: oz + dz + 0.5 };
+                            closest = bPos;
                         }
                     }
                 } catch {}
@@ -257,10 +259,7 @@ export function shootArrowAtBlock(villager, targetBlockPos, isCrossbow = false) 
     const vLoc = villager.location;
 
     // 1. Face target block
-    try {
-        const rot = getLookRotation(vLoc, targetBlockPos);
-        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-    } catch {}
+    setEntityLook(villager, targetBlockPos);
 
     // 2. Play arm raised aiming animation
     try {
@@ -349,10 +348,7 @@ export function shootArrowAtMonster(villager, monster, isCrossbow = false) {
     const mLoc = monster.location;
 
     // 1. Face the monster
-    try {
-        const rot = getLookRotation(vLoc, mLoc);
-        villager.teleport(vLoc, { rotation: { x: rot.x * 0.4, y: rot.y } });
-    } catch {}
+    setEntityLook(villager, mLoc);
 
     // 2. Aim animation
     try {
@@ -485,6 +481,7 @@ export function findNearbyFletchingTable(dimension, location, radius = FLETCHER_
         for (let dz = -radius; dz <= radius; dz += 2) {
             for (let dy = -2; dy <= 2; dy++) {
                 const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                if (isTargetUnreachable(pos)) continue;
                 try {
                     const block = dimension.getBlock(pos);
                     if (block && block.typeId === FLETCHER_CONFIG.FLETCHING_TABLE_ID) {
@@ -506,9 +503,8 @@ export function performCraftTippedArrows(villager, tablePos) {
     if (!villager || !villager.isValid() || !tablePos) return false;
     const dim = villager.dimension;
 
+    setEntityLook(villager, { x: tablePos.x + 0.5, y: tablePos.y + 0.5, z: tablePos.z + 0.5 });
     try {
-        const rot = getLookRotation(villager.location, { x: tablePos.x + 0.5, y: tablePos.y + 0.5, z: tablePos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 

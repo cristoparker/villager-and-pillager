@@ -10,7 +10,7 @@
 
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { EXPANSION_CONFIG, HAY_CONFIG, HOUSE_BUILD_CONFIG, getRandomCooldownTicks } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace, isReplaceableSpace } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace, isReplaceableSpace, setEntityLook, smoothMoveTowards, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 
 /**
@@ -226,6 +226,9 @@ export class VillageExpansionManager {
             depositCooldown: 0,
             chestCooldown: 40,
             breedCooldown: 200,
+            step: 0,
+            stuckTicks: 0,
+            lastLoc: null,
             timer: 20
         });
     }
@@ -374,185 +377,215 @@ export class VillageExpansionManager {
             case ExpansionState.IDLE: {
                 record.timer--;
                 if (record.timer <= 0) {
-                    record.timer = 20;
+                    let foundAction = false;
+                    const startStep = record.step || 0;
 
-                    // 1. PRIORITY 1: Scan for nearby dropped items to collect! (Daytime only)
-                    if (!isNight) {
-                        const droppedItem = this.findNearbyDroppedItem(dim, vLoc, EXPANSION_CONFIG.ITEM_SEARCH_RADIUS);
-                        if (droppedItem) {
-                            record.targetItemEntity = droppedItem;
-                            record.state = ExpansionState.COLLECTING_ITEM;
-                            record.timer = 100;
-                            break;
-                        }
-                    }
+                    for (let i = 0; i < 7; i++) {
+                        const currentStep = (startStep + i) % 7;
 
-                    // 2. PRIORITY 2: Village Workbench Autonomous Placement! (Daytime only, adult only)
-                    // Check every 3 to 5 minutes: first search 64 blocks for their workbench!
-                    // If not found in 64 blocks, then place it adjacent to themselves.
-                    if (!isNight && !isBabyVillager(villager) && record.workbenchCooldown <= 0) {
-                        const prof = getVillagerProfession(villager);
-                        const neededWorkbench = (prof && PROFESSION_WORKBENCH_MAP[prof]) ? PROFESSION_WORKBENCH_MAP[prof] : null;
-
-                        // 64-block detection system!
-                        const hasWorkbench = this.hasNearbyWorkbench(dim, vLoc, neededWorkbench, EXPANSION_CONFIG.WORKBENCH_SEARCH_RADIUS);
-                        if (hasWorkbench) {
-                            // Workbench exists within 64 blocks! Do NOT place duplicate!
-                            record.workbenchCooldown = getRandomCooldownTicks(EXPANSION_CONFIG.WORKBENCH_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.WORKBENCH_COOLDOWN_MAX_TICKS);
-                        } else if (!isAreaWorkbenchCooldown(dim, vLoc)) {
-                            const wbSpot = this.findNearbyWorkbenchPlacementSpot(dim, vLoc, 3);
-                            if (wbSpot) {
-                                record.placementSpot = wbSpot;
-                                if (neededWorkbench) {
-                                    record.targetWorkbenchType = neededWorkbench;
-                                } else {
-                                    const wbList = EXPANSION_CONFIG.WORKBENCH_BLOCK_IDS;
-                                    record.targetWorkbenchType = wbList[Math.floor(Math.random() * wbList.length)];
-                                }
-
-                                const d = distance(vLoc, wbSpot);
-                                if (d <= 2.8) {
-                                    record.state = ExpansionState.PLACING_WORKBENCH;
-                                    record.timer = 15;
-                                } else {
-                                    record.state = ExpansionState.APPROACHING_WORKBENCH_SPOT;
-                                    record.timer = 80;
-                                }
+                        // Step 0: Scan for nearby dropped items to collect! (Daytime only)
+                        if (currentStep === 0 && !isNight) {
+                            const droppedItem = this.findNearbyDroppedItem(dim, vLoc, EXPANSION_CONFIG.ITEM_SEARCH_RADIUS);
+                            if (droppedItem && !isTargetUnreachable(droppedItem)) {
+                                record.targetItemEntity = droppedItem;
+                                record.state = ExpansionState.COLLECTING_ITEM;
+                                record.timer = 100;
+                                record.step = currentStep;
+                                record.stuckTicks = 0;
+                                record.lastLoc = null;
+                                foundAction = true;
                                 break;
+                            }
+                        }
+
+                        // Step 1: Village Workbench Autonomous Placement! (Daytime only, adult only)
+                        if (currentStep === 1 && !isNight && !isBabyVillager(villager) && record.workbenchCooldown <= 0) {
+                            const prof = getVillagerProfession(villager);
+                            const neededWorkbench = (prof && PROFESSION_WORKBENCH_MAP[prof]) ? PROFESSION_WORKBENCH_MAP[prof] : null;
+
+                            const hasWorkbench = this.hasNearbyWorkbench(dim, vLoc, neededWorkbench, EXPANSION_CONFIG.WORKBENCH_SEARCH_RADIUS);
+                            if (hasWorkbench) {
+                                record.workbenchCooldown = getRandomCooldownTicks(EXPANSION_CONFIG.WORKBENCH_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.WORKBENCH_COOLDOWN_MAX_TICKS);
+                            } else if (!isAreaWorkbenchCooldown(dim, vLoc)) {
+                                const wbSpot = this.findNearbyWorkbenchPlacementSpot(dim, vLoc, 3);
+                                if (wbSpot && !isTargetUnreachable(wbSpot)) {
+                                    record.placementSpot = wbSpot;
+                                    if (neededWorkbench) {
+                                        record.targetWorkbenchType = neededWorkbench;
+                                    } else {
+                                        const wbList = EXPANSION_CONFIG.WORKBENCH_BLOCK_IDS;
+                                        record.targetWorkbenchType = wbList[Math.floor(Math.random() * wbList.length)];
+                                    }
+
+                                    const d = distance(vLoc, wbSpot);
+                                    if (d <= 2.8) {
+                                        record.state = ExpansionState.PLACING_WORKBENCH;
+                                        record.timer = 15;
+                                    } else {
+                                        record.state = ExpansionState.APPROACHING_WORKBENCH_SPOT;
+                                        record.timer = 80;
+                                    }
+                                    record.step = currentStep;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = null;
+                                    foundAction = true;
+                                    break;
+                                } else {
+                                    record.workbenchCooldown = getRandomCooldownTicks(1200, 2400);
+                                }
                             } else {
                                 record.workbenchCooldown = getRandomCooldownTicks(1200, 2400);
                             }
-                        } else {
-                            record.workbenchCooldown = getRandomCooldownTicks(1200, 2400);
                         }
-                    }
 
-                    // 3. PRIORITY 3: Village Community Chest Management (Daytime only)
-                    if (!isNight) {
-                        const nearbyChest = this.findNearbyChest(dim, vLoc, EXPANSION_CONFIG.CHEST_SEARCH_RADIUS);
-                        if (nearbyChest) {
-                            if (record.carriedItems.length > 0 && record.depositCooldown <= 0) {
-                                record.targetChest = nearbyChest;
-                                const d = distance(vLoc, nearbyChest.pos);
-                                if (d <= EXPANSION_CONFIG.CHEST_DEPOSIT_DISTANCE) {
-                                    record.state = ExpansionState.DEPOSITING_CHEST;
-                                    record.timer = 25;
-                                } else {
-                                    record.state = ExpansionState.APPROACHING_CHEST;
-                                    record.timer = 100;
-                                }
-                                break;
-                            }
-                        } else {
-                            if (record.chestCooldown <= 0 && !isAreaChestCooldown(dim, vLoc)) {
-                                const chestSpot = this.findNearbyChestPlacementSpot(dim, vLoc, 4);
-                                if (chestSpot) {
-                                    record.placementSpot = chestSpot;
-                                    const d = distance(vLoc, chestSpot);
-                                    if (d <= 2.8) {
-                                        record.state = ExpansionState.PLACING_CHEST;
-                                        record.timer = 20;
+                        // Step 2: Village Community Chest Management (Daytime only)
+                        if (currentStep === 2 && !isNight) {
+                            const nearbyChest = this.findNearbyChest(dim, vLoc, EXPANSION_CONFIG.CHEST_SEARCH_RADIUS);
+                            if (nearbyChest && !isTargetUnreachable(nearbyChest.pos)) {
+                                if (record.carriedItems.length > 0 && record.depositCooldown <= 0) {
+                                    record.targetChest = nearbyChest;
+                                    const d = distance(vLoc, nearbyChest.pos);
+                                    if (d <= EXPANSION_CONFIG.CHEST_DEPOSIT_DISTANCE) {
+                                        record.state = ExpansionState.DEPOSITING_CHEST;
+                                        record.timer = 25;
                                     } else {
-                                        record.state = ExpansionState.APPROACHING_CHEST_SPOT;
-                                        record.timer = 80;
+                                        record.state = ExpansionState.APPROACHING_CHEST;
+                                        record.timer = 100;
                                     }
+                                    record.step = currentStep;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = null;
+                                    foundAction = true;
                                     break;
                                 }
+                            } else {
+                                if (record.chestCooldown <= 0 && !isAreaChestCooldown(dim, vLoc)) {
+                                    const chestSpot = this.findNearbyChestPlacementSpot(dim, vLoc, 4);
+                                    if (chestSpot && !isTargetUnreachable(chestSpot)) {
+                                        record.placementSpot = chestSpot;
+                                        const d = distance(vLoc, chestSpot);
+                                        if (d <= 2.8) {
+                                            record.state = ExpansionState.PLACING_CHEST;
+                                            record.timer = 20;
+                                        } else {
+                                            record.state = ExpansionState.APPROACHING_CHEST_SPOT;
+                                            record.timer = 80;
+                                        }
+                                        record.step = currentStep;
+                                        record.stuckTicks = 0;
+                                        record.lastLoc = null;
+                                        foundAction = true;
+                                        break;
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    // 4. PRIORITY 4: Village Bed Expansion (Low frequency 3-5 mins AND night time check)
-                    // Baby villagers will NEVER place beds!
-                    if (!isBabyVillager(villager) && (record.bedCooldown <= 0 || (isNight && !record.checkedNightBed))) {
-                        if (isNight) record.checkedNightBed = true;
+                        // Step 3: Village Bed Expansion (Low frequency 3-5 mins AND night time check)
+                        if (currentStep === 3 && !isBabyVillager(villager) && (record.bedCooldown <= 0 || (isNight && !record.checkedNightBed))) {
+                            if (isNight) record.checkedNightBed = true;
 
-                        // 64-block bed detection system!
-                        const localBeds = this.countNearbyBeds(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
-                        const localVillagers = this.countNearbyVillagers(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
+                            const localBeds = this.countNearbyBeds(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
+                            const localVillagers = this.countNearbyVillagers(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
 
-                        if (localBeds >= localVillagers) {
-                            // Beds are sufficient in 64 blocks! Do NOT place duplicate!
-                            record.bedCooldown = getRandomCooldownTicks(EXPANSION_CONFIG.BED_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.BED_COOLDOWN_MAX_TICKS);
-                        } else if (!isAreaBedCooldown(dim, vLoc)) {
-                            const bedSpot = this.findNearbyBedPlacementSpot(dim, vLoc, 8);
-                            if (bedSpot) {
-                                record.placementSpot = bedSpot;
-                                const targetPos = bedSpot.footPos || bedSpot;
-                                const d = distance(vLoc, targetPos);
-                                if (d <= 2.8) {
-                                    record.state = ExpansionState.PLACING_BED;
-                                    record.timer = 20;
+                            if (localBeds >= localVillagers) {
+                                record.bedCooldown = getRandomCooldownTicks(EXPANSION_CONFIG.BED_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.BED_COOLDOWN_MAX_TICKS);
+                            } else if (!isAreaBedCooldown(dim, vLoc)) {
+                                const bedSpot = this.findNearbyBedPlacementSpot(dim, vLoc, 8);
+                                if (bedSpot) {
+                                    const targetPos = bedSpot.footPos || bedSpot;
+                                    if (!isTargetUnreachable(targetPos)) {
+                                        record.placementSpot = bedSpot;
+                                        const d = distance(vLoc, targetPos);
+                                        if (d <= 2.8) {
+                                            record.state = ExpansionState.PLACING_BED;
+                                            record.timer = 20;
+                                        } else {
+                                            record.state = ExpansionState.APPROACHING_BED_SPOT;
+                                            record.timer = 90;
+                                        }
+                                        record.step = currentStep;
+                                        record.stuckTicks = 0;
+                                        record.lastLoc = null;
+                                        foundAction = true;
+                                        break;
+                                    }
                                 } else {
-                                    record.state = ExpansionState.APPROACHING_BED_SPOT;
-                                    record.timer = 90;
+                                    record.bedCooldown = getRandomCooldownTicks(1200, 2400);
                                 }
-                                break;
                             } else {
                                 record.bedCooldown = getRandomCooldownTicks(1200, 2400);
                             }
-                        } else {
-                            record.bedCooldown = getRandomCooldownTicks(1200, 2400);
                         }
-                    }
 
-                    // 5. PRIORITY 5: Villager Breeding System Check (Daytime only, adult only)
-                    if (!isNight && !isBabyVillager(villager) && record.breedCooldown <= 0) {
-                        if (this.tryPerformQuickBreeding(villager, record, dim, vLoc)) {
-                            record.timer = 35;
-                            break;
-                        }
-                    }
-
-                    // 6. PRIORITY 6: Village Hay Bale Placement (Clusters & stacks hay bales together!)
-                    // Sometimes places a hay bale near existing hay bales to make an authentic village chunk/pile
-                    if (!isNight && !isBabyVillager(villager) && record.hayCooldown <= 0 && !isAreaHayCooldown(dim, vLoc)) {
-                        const existingHay = this.findNearbyExistingHayBlock(dim, vLoc, HAY_CONFIG.SEARCH_RADIUS);
-                        let haySpot = null;
-
-                        if (existingHay) {
-                            // Found existing hay bale! Grow this cluster into a chunk of hay bales
-                            const clusterSize = this.countHayClusterSize(dim, existingHay, HAY_CONFIG.CLUSTER_RADIUS);
-                            if (clusterSize < HAY_CONFIG.MAX_CLUSTER_SIZE && Math.random() < HAY_CONFIG.CHANCE_TO_EXPAND_CLUSTER) {
-                                haySpot = this.findAdjacentHayPlacementSpot(dim, existingHay);
-                            }
-                        } else {
-                            // Occasionally start a new hay cluster on flat outdoor ground
-                            if (Math.random() < HAY_CONFIG.CHANCE_TO_START_CLUSTER) {
-                                haySpot = this.findStarterHayPlacementSpot(dim, vLoc, 6);
+                        // Step 4: Villager Breeding System Check (Daytime only, adult only)
+                        if (currentStep === 4 && !isNight && !isBabyVillager(villager) && record.breedCooldown <= 0) {
+                            if (this.tryPerformQuickBreeding(villager, record, dim, vLoc)) {
+                                record.timer = 35;
+                                record.step = currentStep;
+                                foundAction = true;
+                                break;
                             }
                         }
 
-                        if (haySpot) {
-                            record.placementSpot = haySpot;
-                            const d = distance(vLoc, haySpot);
-                            if (d <= HAY_CONFIG.PLACEMENT_DISTANCE) {
-                                record.state = ExpansionState.PLACING_HAY;
-                                record.timer = 15;
+                        // Step 5: Village Hay Bale Placement (Clusters & stacks hay bales together!)
+                        if (currentStep === 5 && !isNight && !isBabyVillager(villager) && record.hayCooldown <= 0 && !isAreaHayCooldown(dim, vLoc)) {
+                            const existingHay = this.findNearbyExistingHayBlock(dim, vLoc, HAY_CONFIG.SEARCH_RADIUS);
+                            let haySpot = null;
+
+                            if (existingHay) {
+                                const clusterSize = this.countHayClusterSize(dim, existingHay, HAY_CONFIG.CLUSTER_RADIUS);
+                                if (clusterSize < HAY_CONFIG.MAX_CLUSTER_SIZE && Math.random() < HAY_CONFIG.CHANCE_TO_EXPAND_CLUSTER) {
+                                    haySpot = this.findAdjacentHayPlacementSpot(dim, existingHay);
+                                }
                             } else {
-                                record.state = ExpansionState.APPROACHING_HAY_SPOT;
-                                record.timer = 80;
+                                if (Math.random() < HAY_CONFIG.CHANCE_TO_START_CLUSTER) {
+                                    haySpot = this.findStarterHayPlacementSpot(dim, vLoc, 6);
+                                }
                             }
-                            break;
-                        } else {
-                            record.hayCooldown = getRandomCooldownTicks(1200, 2400);
+
+                            if (haySpot && !isTargetUnreachable(haySpot)) {
+                                record.placementSpot = haySpot;
+                                const d = distance(vLoc, haySpot);
+                                if (d <= HAY_CONFIG.PLACEMENT_DISTANCE) {
+                                    record.state = ExpansionState.PLACING_HAY;
+                                    record.timer = 15;
+                                } else {
+                                    record.state = ExpansionState.APPROACHING_HAY_SPOT;
+                                    record.timer = 80;
+                                }
+                                record.step = currentStep;
+                                record.stuckTicks = 0;
+                                record.lastLoc = null;
+                                foundAction = true;
+                                break;
+                            } else {
+                                record.hayCooldown = getRandomCooldownTicks(1200, 2400);
+                            }
+                        }
+
+                        // Step 6: Rare Village Home Construction
+                        if (currentStep === 6 && !isNight && !isBabyVillager(villager) && record.isBuilderCandidate && record.houseCooldown <= 0 && !isAreaHouseCooldown(dim, vLoc)) {
+                            const plotOrigin = this.findFreeHousePlot(dim, vLoc, HOUSE_BUILD_CONFIG.SEARCH_RADIUS);
+                            if (plotOrigin && !isTargetUnreachable(plotOrigin)) {
+                                record.housePlotOrigin = plotOrigin;
+                                record.houseStage = 0;
+                                record.state = ExpansionState.APPROACHING_HOUSE_SITE;
+                                record.timer = 120;
+                                record.step = currentStep;
+                                record.stuckTicks = 0;
+                                record.lastLoc = null;
+                                foundAction = true;
+                                break;
+                            } else {
+                                record.houseCooldown = getRandomCooldownTicks(3600, 7200);
+                            }
                         }
                     }
 
-                    // 7. PRIORITY 7: Rare Village Home Construction (Build a home in free space containing bed)
-                    // Very few villagers (isBuilderCandidate) will identify free flat open space and construct a home
-                    if (!isNight && !isBabyVillager(villager) && record.isBuilderCandidate && record.houseCooldown <= 0 && !isAreaHouseCooldown(dim, vLoc)) {
-                        const plotOrigin = this.findFreeHousePlot(dim, vLoc, HOUSE_BUILD_CONFIG.SEARCH_RADIUS);
-                        if (plotOrigin) {
-                            record.housePlotOrigin = plotOrigin;
-                            record.houseStage = 0;
-                            record.state = ExpansionState.APPROACHING_HOUSE_SITE;
-                            record.timer = 120;
-                            break;
-                        } else {
-                            // Retry after cooldown if no free space found nearby
-                            record.houseCooldown = getRandomCooldownTicks(3600, 7200);
-                        }
+                    if (!foundAction) {
+                        record.step = ((record.step || 0) + 1) % 7;
+                        record.timer = 20;
                     }
                 }
                 break;
@@ -561,9 +594,11 @@ export class VillageExpansionManager {
             case ExpansionState.COLLECTING_ITEM: {
                 record.timer--;
                 if (!record.targetItemEntity || !record.targetItemEntity.isValid() || record.timer <= 0) {
-                    record.state = ExpansionState.IDLE;
+                    if (record.targetItemEntity) markTargetUnreachable(record.targetItemEntity, 400);
                     record.targetItemEntity = null;
-                    record.timer = 15;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
                     break;
                 }
 
@@ -578,25 +613,35 @@ export class VillageExpansionManager {
                     break;
                 }
 
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, itemLoc);
-                        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = itemLoc.x - vLoc.x;
-                    const dz = itemLoc.z - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35) {
+                    markTargetUnreachable(record.targetItemEntity, 400);
+                    record.targetItemEntity = null;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
+                    break;
+                }
+
+                smoothMoveTowards(villager, itemLoc, { stopDistance: EXPANSION_CONFIG.ITEM_PICKUP_DISTANCE });
                 break;
             }
 
             case ExpansionState.APPROACHING_CHEST: {
                 record.timer--;
                 if (!record.targetChest || record.timer <= 0) {
-                    record.state = ExpansionState.IDLE;
+                    if (record.targetChest) markTargetUnreachable(record.targetChest.pos, 400);
                     record.targetChest = null;
-                    record.timer = 15;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
                     break;
                 }
 
@@ -609,16 +654,24 @@ export class VillageExpansionManager {
                     break;
                 }
 
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, chestPos);
-                        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = chestPos.x + 0.5 - vLoc.x;
-                    const dz = chestPos.z + 0.5 - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35) {
+                    markTargetUnreachable(chestPos, 400);
+                    record.targetChest = null;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
+                    break;
+                }
+
+                smoothMoveTowards(villager, { x: chestPos.x + 0.5, y: chestPos.y, z: chestPos.z + 0.5 }, { stopDistance: EXPANSION_CONFIG.CHEST_DEPOSIT_DISTANCE });
                 break;
             }
 
@@ -639,9 +692,11 @@ export class VillageExpansionManager {
             case ExpansionState.APPROACHING_CHEST_SPOT: {
                 record.timer--;
                 if (!record.placementSpot || record.timer <= 0) {
-                    record.state = ExpansionState.IDLE;
+                    if (record.placementSpot) markTargetUnreachable(record.placementSpot, 400);
                     record.placementSpot = null;
-                    record.timer = 20;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
                     break;
                 }
 
@@ -653,18 +708,29 @@ export class VillageExpansionManager {
                     break;
                 }
 
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35) {
+                    markTargetUnreachable(spot, 400);
+                    record.placementSpot = null;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
+                    break;
+                }
+
                 try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, spot);
-                        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-                        const equippable = villager.getComponent("minecraft:equippable");
-                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:chest", 1));
-                    }
-                    const dx = spot.x + 0.5 - vLoc.x;
-                    const dz = spot.z + 0.5 - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                    const equippable = villager.getComponent("minecraft:equippable");
+                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:chest", 1));
                 } catch {}
+
+                smoothMoveTowards(villager, { x: spot.x + 0.5, y: spot.y, z: spot.z + 0.5 }, { stopDistance: 2.2 });
                 break;
             }
 
@@ -687,10 +753,12 @@ export class VillageExpansionManager {
                 record.timer--;
                 // Baby villagers will NEVER place beds!
                 if (isBabyVillager(villager) || !record.placementSpot || record.timer <= 0) {
+                    if (record.placementSpot) markTargetUnreachable(record.placementSpot.footPos || record.placementSpot, 400);
                     record.state = ExpansionState.IDLE;
                     record.placementSpot = null;
                     record.bedCooldown = isBabyVillager(villager) ? 999999 : getRandomCooldownTicks(EXPANSION_CONFIG.BED_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.BED_COOLDOWN_MAX_TICKS);
-                    record.timer = 20;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.timer = 1;
                     break;
                 }
 
@@ -703,18 +771,29 @@ export class VillageExpansionManager {
                     break;
                 }
 
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35) {
+                    markTargetUnreachable(targetPos, 400);
+                    record.placementSpot = null;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
+                    break;
+                }
+
                 try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, targetPos);
-                        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-                        const equippable = villager.getComponent("minecraft:equippable");
-                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:bed", 1));
-                    }
-                    const dx = targetPos.x + 0.5 - vLoc.x;
-                    const dz = targetPos.z + 0.5 - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                    const equippable = villager.getComponent("minecraft:equippable");
+                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:bed", 1));
                 } catch {}
+
+                smoothMoveTowards(villager, { x: targetPos.x + 0.5, y: targetPos.y, z: targetPos.z + 0.5 }, { stopDistance: 2.2 });
                 break;
             }
 
@@ -744,11 +823,13 @@ export class VillageExpansionManager {
             case ExpansionState.APPROACHING_WORKBENCH_SPOT: {
                 record.timer--;
                 if (isBabyVillager(villager) || !record.placementSpot || record.timer <= 0) {
+                    if (record.placementSpot) markTargetUnreachable(record.placementSpot, 400);
                     record.state = ExpansionState.IDLE;
                     record.placementSpot = null;
                     record.targetWorkbenchType = null;
                     record.workbenchCooldown = isBabyVillager(villager) ? 999999 : getRandomCooldownTicks(EXPANSION_CONFIG.WORKBENCH_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.WORKBENCH_COOLDOWN_MAX_TICKS);
-                    record.timer = 20;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.timer = 1;
                     break;
                 }
 
@@ -760,20 +841,32 @@ export class VillageExpansionManager {
                     break;
                 }
 
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35) {
+                    markTargetUnreachable(spot, 400);
+                    record.placementSpot = null;
+                    record.targetWorkbenchType = null;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
+                    break;
+                }
+
                 try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, spot);
-                        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-                        if (record.targetWorkbenchType) {
-                            const equippable = villager.getComponent("minecraft:equippable");
-                            equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(record.targetWorkbenchType, 1));
-                        }
+                    if (record.targetWorkbenchType) {
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(record.targetWorkbenchType, 1));
                     }
-                    const dx = spot.x + 0.5 - vLoc.x;
-                    const dz = spot.z + 0.5 - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
                 } catch {}
+
+                smoothMoveTowards(villager, { x: spot.x + 0.5, y: spot.y, z: spot.z + 0.5 }, { stopDistance: 2.2 });
                 break;
             }
 
@@ -804,10 +897,12 @@ export class VillageExpansionManager {
             case ExpansionState.APPROACHING_HAY_SPOT: {
                 record.timer--;
                 if (isBabyVillager(villager) || !record.placementSpot || record.timer <= 0) {
+                    if (record.placementSpot) markTargetUnreachable(record.placementSpot, 400);
                     record.state = ExpansionState.IDLE;
                     record.placementSpot = null;
                     record.hayCooldown = isBabyVillager(villager) ? 999999 : getRandomCooldownTicks(HAY_CONFIG.COOLDOWN_MIN_TICKS, HAY_CONFIG.COOLDOWN_MAX_TICKS);
-                    record.timer = 20;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.timer = 1;
                     break;
                 }
 
@@ -819,18 +914,29 @@ export class VillageExpansionManager {
                     break;
                 }
 
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35) {
+                    markTargetUnreachable(spot, 400);
+                    record.placementSpot = null;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
+                    break;
+                }
+
                 try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, spot);
-                        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-                        const equippable = villager.getComponent("minecraft:equippable");
-                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HAY_CONFIG.BLOCK_ID, 1));
-                    }
-                    const dx = spot.x + 0.5 - vLoc.x;
-                    const dz = spot.z + 0.5 - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
+                    const equippable = villager.getComponent("minecraft:equippable");
+                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HAY_CONFIG.BLOCK_ID, 1));
                 } catch {}
+
+                smoothMoveTowards(villager, { x: spot.x + 0.5, y: spot.y, z: spot.z + 0.5 }, { stopDistance: HAY_CONFIG.PLACEMENT_DISTANCE });
                 break;
             }
 
@@ -859,15 +965,16 @@ export class VillageExpansionManager {
             case ExpansionState.APPROACHING_HOUSE_SITE: {
                 record.timer--;
                 if (isNight || isBabyVillager(villager) || !record.housePlotOrigin || record.timer <= 0) {
+                    if (record.housePlotOrigin) markTargetUnreachable(record.housePlotOrigin, 400);
                     record.state = ExpansionState.IDLE;
                     record.housePlotOrigin = null;
                     record.houseStage = 0;
                     record.houseCooldown = isBabyVillager(villager) ? 999999 : getRandomCooldownTicks(2400, 4800);
-                    record.timer = 20;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.timer = 1;
                     break;
                 }
 
-                // Front door entrance spot is (origin.x + 2.5, origin.y, origin.z - 0.5)
                 const frontDoorSpot = {
                     x: record.housePlotOrigin.x + 2.5,
                     y: record.housePlotOrigin.y,
@@ -881,18 +988,30 @@ export class VillageExpansionManager {
                     break;
                 }
 
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35) {
+                    markTargetUnreachable(record.housePlotOrigin, 400);
+                    record.housePlotOrigin = null;
+                    record.houseStage = 0;
+                    record.step = ((record.step || 0) + 1) % 7;
+                    record.state = ExpansionState.IDLE;
+                    record.timer = 1;
+                    break;
+                }
+
                 try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(vLoc, frontDoorSpot);
-                        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
-                        const equippable = villager.getComponent("minecraft:equippable");
-                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.FOUNDATION_BLOCK, 1));
-                    }
-                    const dx = frontDoorSpot.x - vLoc.x;
-                    const dz = frontDoorSpot.z - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.20, y: 0, z: (dz / len) * 0.20 });
+                    const equippable = villager.getComponent("minecraft:equippable");
+                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.FOUNDATION_BLOCK, 1));
                 } catch {}
+
+                smoothMoveTowards(villager, frontDoorSpot, { stopDistance: 2.8 });
                 break;
             }
 
@@ -961,7 +1080,7 @@ export class VillageExpansionManager {
             let closestDist = Infinity;
 
             for (const item of items) {
-                if (!item || !item.isValid()) continue;
+                if (!item || !item.isValid() || isTargetUnreachable(item)) continue;
                 const d = distance(location, item.location);
                 if (d < closestDist) {
                     closestDist = d;
@@ -1052,7 +1171,7 @@ export class VillageExpansionManager {
                     const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                     try {
                         const block = dimension.getBlock(pos);
-                        if (block && EXPANSION_CONFIG.CHEST_BLOCK_IDS.includes(block.typeId)) {
+                        if (block && EXPANSION_CONFIG.CHEST_BLOCK_IDS.includes(block.typeId) && !isTargetUnreachable(pos)) {
                             const d = distance(location, pos);
                             if (d < closestDist) {
                                 closestDist = d;
@@ -1078,8 +1197,7 @@ export class VillageExpansionManager {
         const pos = chestBlock.location;
 
         try {
-            const rot = getLookRotation(villager.location, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
-            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            setEntityLook(villager, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
             villager.playAnimation("animation.villager.raise_arms");
         } catch {}
 
@@ -1160,7 +1278,8 @@ export class VillageExpansionManager {
                         !spot.typeId.includes("bed") && 
                         !spot.typeId.includes("chest") && 
                         !spot.typeId.includes("door") &&
-                        (isReplaceableSpace(above) || above?.isAir)) {
+                        (isReplaceableSpace(above) || above?.isAir) &&
+                        !isTargetUnreachable(spotPos)) {
                         return spotPos;
                     }
                 } catch {}
@@ -1181,8 +1300,7 @@ export class VillageExpansionManager {
         const dim = villager.dimension;
 
         try {
-            const rot = getLookRotation(villager.location, spot);
-            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            setEntityLook(villager, spot);
             const equippable = villager.getComponent("minecraft:equippable");
             equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:chest", 1));
             villager.playAnimation("animation.villager.raise_arms");
@@ -1441,7 +1559,7 @@ export class VillageExpansionManager {
                             const hH1 = dimension.getBlock({ x: headPos.x, y: headPos.y + 1, z: headPos.z });
                             const hH2 = dimension.getBlock({ x: headPos.x, y: headPos.y + 2, z: headPos.z });
 
-                            if (fH1?.isAir && fH2?.isAir && hH1?.isAir && hH2?.isAir) {
+                            if (fH1?.isAir && fH2?.isAir && hH1?.isAir && hH2?.isAir && !isTargetUnreachable(footPos)) {
                                 candidates.push({ footPos, headPos, direction: d.dir });
                                 break;
                             }
@@ -1466,8 +1584,7 @@ export class VillageExpansionManager {
         const footPos = spot.footPos || spot;
 
         try {
-            const rot = getLookRotation(villager.location, footPos);
-            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            setEntityLook(villager, footPos);
             const equippable = villager.getComponent("minecraft:equippable");
             equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack("minecraft:bed", 1));
             villager.playAnimation("animation.villager.raise_arms");
@@ -1497,18 +1614,17 @@ export class VillageExpansionManager {
     }
 
     /**
-     * Checks if a specific workbench (or any village workstation) exists within radius.
-     * Scans every coordinate (no skipping) so existing workbenches are accurately identified.
+     * Checks if a workbench of the needed type exists within radius.
      * @param {Dimension} dimension 
      * @param {Vector3} location 
-     * @param {string|null} workbenchTypeId 
+     * @param {string|null} neededWorkbenchTypeId 
      * @param {number} radius 
      * @returns {boolean}
      */
-    hasNearbyWorkbench(dimension, location, workbenchTypeId = null, radius = EXPANSION_CONFIG.WORKBENCH_SEARCH_RADIUS) {
+    hasNearbyWorkbench(dimension, location, neededWorkbenchTypeId = null, radius = EXPANSION_CONFIG.WORKBENCH_SEARCH_RADIUS) {
         if (!dimension || !location) return false;
         const dimId = dimension.id;
-        const checkTypes = workbenchTypeId ? [workbenchTypeId] : EXPANSION_CONFIG.WORKBENCH_BLOCK_IDS;
+        const checkTypes = neededWorkbenchTypeId ? [neededWorkbenchTypeId] : EXPANSION_CONFIG.WORKBENCH_BLOCK_IDS;
 
         // 1. Fast Cache Verification (O(1) checks)
         for (const [key, poi] of villagePoiCache.entries()) {
@@ -1535,7 +1651,7 @@ export class VillageExpansionManager {
         const scanR = Math.min(radius, 32);
         for (let dx = -scanR; dx <= scanR; dx += 4) {
             for (let dz = -scanR; dz <= scanR; dz += 4) {
-                for (let dy = -1; dy <= 2; dy++) {
+                for (let dy = -2; dy <= 2; dy += 2) {
                     const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                     try {
                         const block = dimension.getBlock(pos);
@@ -1587,7 +1703,7 @@ export class VillageExpansionManager {
                     const spot = dimension.getBlock(spotPos);
                     const above = dimension.getBlock(abovePos);
 
-                    if (isSolidGround(ground) && isReplaceableSpace(spot) && isPassableBlock(above)) {
+                    if (isSolidGround(ground) && isReplaceableSpace(spot) && isPassableBlock(above) && !isTargetUnreachable(spotPos)) {
                         return spotPos;
                     }
                 } catch {}
@@ -1608,8 +1724,7 @@ export class VillageExpansionManager {
         const dim = villager.dimension;
 
         try {
-            const rot = getLookRotation(villager.location, spot);
-            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            setEntityLook(villager, spot);
             const equippable = villager.getComponent("minecraft:equippable");
             equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(workbenchTypeId, 1));
             villager.playAnimation("animation.villager.raise_arms");
@@ -1648,7 +1763,7 @@ export class VillageExpansionManager {
                 if (d <= radius) {
                     try {
                         const block = dimension.getBlock(poi.pos);
-                        if (block && block.typeId === HAY_CONFIG.BLOCK_ID) {
+                        if (block && block.typeId === HAY_CONFIG.BLOCK_ID && !isTargetUnreachable(poi.pos)) {
                             return poi.pos;
                         } else {
                             villagePoiCache.delete(key);
@@ -1670,7 +1785,7 @@ export class VillageExpansionManager {
                     const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                     try {
                         const block = dimension.getBlock(pos);
-                        if (block && block.typeId === HAY_CONFIG.BLOCK_ID) {
+                        if (block && block.typeId === HAY_CONFIG.BLOCK_ID && !isTargetUnreachable(pos)) {
                             addPoiToCache(dimId, pos, HAY_CONFIG.BLOCK_ID);
                             return pos;
                         }
@@ -1734,7 +1849,7 @@ export class VillageExpansionManager {
             const below = dimension.getBlock({ x: hx, y: hy - 1, z: hz });
             const isTooTall = below && below.typeId === HAY_CONFIG.BLOCK_ID;
 
-            if (!isTooTall && aboveBlock && isPassableBlock(aboveBlock) && (!above2 || isPassableBlock(above2))) {
+            if (!isTooTall && aboveBlock && isPassableBlock(aboveBlock) && (!above2 || isPassableBlock(above2)) && !isTargetUnreachable(aboveSpot)) {
                 candidates.push(aboveSpot);
             }
         } catch {}
@@ -1761,7 +1876,8 @@ export class VillageExpansionManager {
                     // Must have solid ground or existing hay block beneath, and space to place
                     if ((isSolidGround(ground) || ground.typeId === HAY_CONFIG.BLOCK_ID) &&
                         spot && isPassableBlock(spot) && !spot.typeId.includes("bed") &&
-                        (!head || isPassableBlock(head))) {
+                        (!head || isPassableBlock(head)) &&
+                        !isTargetUnreachable(spotPos)) {
                         candidates.push(spotPos);
                     }
                 } catch {}
@@ -1803,7 +1919,8 @@ export class VillageExpansionManager {
 
                         if (isSolidGround(ground) && spot && isPassableBlock(spot) &&
                             !spot.typeId.includes("bed") && !spot.typeId.includes("chest") &&
-                            (!head || isPassableBlock(head))) {
+                            (!head || isPassableBlock(head)) &&
+                            !isTargetUnreachable(spotPos)) {
                             candidates.push(spotPos);
                         }
                     } catch {}
@@ -1825,8 +1942,7 @@ export class VillageExpansionManager {
         const dim = villager.dimension;
 
         try {
-            const rot = getLookRotation(villager.location, spot);
-            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            setEntityLook(villager, spot);
             const equippable = villager.getComponent("minecraft:equippable");
             equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HAY_CONFIG.BLOCK_ID, 1));
             villager.playAnimation("animation.villager.raise_arms");
@@ -1969,7 +2085,7 @@ export class VillageExpansionManager {
                     const y0 = oy + dy;
                     const z0 = oz + dz;
 
-                    if (this.isPlotSuitable(dimension, x0, y0, z0)) {
+                    if (this.isPlotSuitable(dimension, x0, y0, z0) && !isTargetUnreachable({ x: x0, y: y0, z: z0 })) {
                         candidates.push({ x: x0, y: y0, z: z0 });
                         if (candidates.length >= 2) {
                             return candidates[Math.floor(Math.random() * candidates.length)];
@@ -1998,8 +2114,7 @@ export class VillageExpansionManager {
 
         try {
             const centerPos = { x: ox + 2.5, y: oy + 1, z: oz + 2.5 };
-            const rot = getLookRotation(villager.location, centerPos);
-            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+            setEntityLook(villager, centerPos);
         } catch {}
 
         switch (stage) {

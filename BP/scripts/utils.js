@@ -65,6 +65,148 @@ export function getLookRotation(from, to) {
 }
 
 /**
+ * Smoothly updates an entity's facing direction without resetting velocity or breaking walk interpolation.
+ * Uses entity.setRotation() where supported; avoids position-resetting teleport.
+ */
+export function setEntityLook(entity, targetPos) {
+    if (!entity || !entity.isValid() || !targetPos) return;
+    try {
+        const rot = getLookRotation(entity.location, targetPos);
+        if (typeof entity.setRotation === "function") {
+            entity.setRotation({ x: rot.x || 0, y: rot.y });
+        } else {
+            entity.teleport(entity.location, { rotation: { x: 0, y: rot.y } });
+        }
+    } catch {}
+}
+
+/**
+ * Gently guides an entity towards a target position without fighting vanilla AI or stuttering.
+ * - Smoothly sets rotation
+ * - Applies subtle forward momentum only if entity is not already moving fast enough
+ * - Handles auto-step/hop over 1-block obstacles if stuck
+ * - Does NOT teleport or freeze animations
+ * @param {Entity} entity
+ * @param {{x: number, y: number, z: number}} targetPos
+ * @param {object} [options]
+ * @returns {number} Distance to target
+ */
+export function smoothMoveTowards(entity, targetPos, options = {}) {
+    if (!entity || !entity.isValid() || !targetPos) return Infinity;
+    
+    const eLoc = entity.location;
+    const dx = targetPos.x - eLoc.x;
+    const dy = (targetPos.y !== undefined ? targetPos.y : eLoc.y) - eLoc.y;
+    const dz = targetPos.z - eLoc.z;
+    const dist2D = Math.hypot(dx, dz);
+    const dist3D = Math.hypot(dx, dy, dz);
+
+    const stopDistance = options.stopDistance ?? 1.2;
+    if (dist2D <= stopDistance) {
+        setEntityLook(entity, targetPos);
+        return dist3D;
+    }
+
+    // Smoothly turn towards target without teleport packet lag
+    setEntityLook(entity, targetPos);
+
+    // Check velocity to prevent over-acceleration and fighting physics
+    let curVel = { x: 0, y: 0, z: 0 };
+    try {
+        if (typeof entity.getVelocity === "function") {
+            curVel = entity.getVelocity() || curVel;
+        }
+    } catch {}
+
+    const dirX = dx / (dist2D || 1);
+    const dirZ = dz / (dist2D || 1);
+
+    // Natural villager walk speed (~0.12)
+    const maxSpeed = options.speed ?? 0.13;
+
+    // Check dot product: how fast is entity already moving in target direction?
+    const dot = (curVel.x * dirX + curVel.z * dirZ);
+    if (dot < maxSpeed) {
+        const needed = Math.max(0.012, Math.min(0.045, maxSpeed - dot));
+        let hopY = 0;
+        
+        // Auto-step: if moving slowly against an obstacle, apply slight hop
+        if (dot < 0.03 && dist2D > 0.8) {
+            try {
+                const blockAhead = entity.dimension.getBlock({
+                    x: Math.floor(eLoc.x + dirX * 0.7),
+                    y: Math.floor(eLoc.y),
+                    z: Math.floor(eLoc.z + dirZ * 0.7)
+                });
+                if (blockAhead && !blockAhead.isAir && !blockAhead.isLiquid) {
+                    hopY = 0.26; // Smooth 1-block step hop
+                }
+            } catch {}
+        } else if (dy > 0.6 && dist2D < 2.5) {
+            hopY = 0.26;
+        }
+
+        try {
+            entity.applyImpulse({
+                x: dirX * needed,
+                y: hopY,
+                z: dirZ * needed
+            });
+        } catch {}
+    }
+
+    return dist3D;
+}
+
+/**
+ * Global cache of unreachable or temporarily failed targets (block positions or entity IDs)
+ * so villagers immediately skip them instead of getting stuck in infinite loops.
+ */
+const unreachableTargetCooldowns = new Map();
+
+/**
+ * Marks a target as unreachable for a set duration (default 400 ticks / 20 seconds).
+ * @param {string|{x: number, y: number, z: number}} target - Entity ID or Block Vector3
+ * @param {number} durationTicks 
+ */
+export function markTargetUnreachable(target, durationTicks = 400) {
+    if (!target) return;
+    const key = (typeof target === "string") 
+        ? target 
+        : (target.id ? target.id : `${Math.floor(target.x || 0)},${Math.floor(target.y || 0)},${Math.floor(target.z || 0)}`);
+    unreachableTargetCooldowns.set(key, Date.now() + (durationTicks * 50));
+}
+
+/**
+ * Checks if a target is currently marked as unreachable/failed.
+ * @param {string|{x: number, y: number, z: number}} target 
+ * @returns {boolean}
+ */
+export function isTargetUnreachable(target) {
+    if (!target) return false;
+    const key = (typeof target === "string") 
+        ? target 
+        : (target.id ? target.id : `${Math.floor(target.x || 0)},${Math.floor(target.y || 0)},${Math.floor(target.z || 0)}`);
+    const expiry = unreachableTargetCooldowns.get(key);
+    if (!expiry) return false;
+    if (Date.now() > expiry) {
+        unreachableTargetCooldowns.delete(key);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Cleans up expired entries periodically.
+ */
+export function pruneUnreachableTargets() {
+    const now = Date.now();
+    for (const [key, expiry] of unreachableTargetCooldowns.entries()) {
+        if (now > expiry) unreachableTargetCooldowns.delete(key);
+    }
+}
+
+/**
  * Checks if a block is water.
  */
 export function isWaterBlock(block) {

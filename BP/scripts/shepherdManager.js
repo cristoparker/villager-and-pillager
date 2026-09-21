@@ -7,7 +7,7 @@
 
 import { world } from "@minecraft/server";
 import { SHEPHERD_CONFIG } from "./config.js";
-import { distance, getLookRotation } from "./utils.js";
+import { distance, getLookRotation, smoothMoveTowards, setEntityLook, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 import { 
     equipShears, 
@@ -45,7 +45,7 @@ export const ShepherdState = {
 
 export class ShepherdManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, targetSheep: Entity|null, targetDyeSheep: Entity|null, targetFeedSheep: Entity|null, targetPredator: Entity|null, targetLoom: any, chosenDye: any, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, targetSheep: Entity|null, targetDyeSheep: Entity|null, targetFeedSheep: Entity|null, targetPredator: Entity|null, targetLoom: any, chosenDye: any, timer: number, step: number, stuckTicks: number, lastLoc: any }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -142,7 +142,15 @@ export class ShepherdManager {
             state: isNight ? ShepherdState.SLEEPING : ShepherdState.IDLE,
             villager: villager,
             targetSheep: null,
-            timer: 20
+            targetDyeSheep: null,
+            targetFeedSheep: null,
+            targetPredator: null,
+            targetLoom: null,
+            chosenDye: null,
+            timer: 20,
+            step: 0,
+            stuckTicks: 0,
+            lastLoc: null
         });
     }
 
@@ -245,73 +253,103 @@ export class ShepherdManager {
                     record.timer = 25;
                     equipShears(villager);
 
-                    // 1. Primary: Scan for closest shearable sheep
-                    const sheep = findNearbyShearableSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
-                    if (sheep) {
-                        record.targetSheep = sheep;
-                        const dist = distance(villager.location, sheep.location);
-                        if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
-                            record.state = ShepherdState.SHEARING;
-                            record.timer = SHEPHERD_CONFIG.SHEAR_ANIMATION_TICKS;
-                        } else {
-                            record.state = ShepherdState.APPROACHING;
-                            record.timer = 120;
-                            try {
-                                villager.triggerEvent("rpc:start_approach_sheep");
-                            } catch {}
-                        }
-                        break;
-                    }
+                    const startStep = record.step || 0;
+                    let actionFound = false;
 
-                    // 2. Scan for sheared sheep that need wheat to regrow wool
-                    const shearedSheep = findNearbyShearedSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
-                    if (shearedSheep) {
-                        record.targetFeedSheep = shearedSheep;
-                        equipWheat(villager);
-                        const dist = distance(villager.location, shearedSheep.location);
-                        if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
-                            record.state = ShepherdState.FEEDING;
-                            record.timer = 25;
-                        } else {
-                            record.state = ShepherdState.APPROACHING_FEED;
-                            record.timer = 100;
-                        }
-                        break;
-                    }
+                    for (let s = 0; s < 4; s++) {
+                        const currentStep = (startStep + s) % 4;
+                        record.step = (currentStep + 1) % 4;
 
-                    // 3. Scan for white sheep to dye into vibrant colors
-                    const whiteSheep = findNearbyWhiteSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
-                    if (whiteSheep && SHEPHERD_CONFIG.DYES && SHEPHERD_CONFIG.DYES.length > 0) {
-                        const dyeDef = SHEPHERD_CONFIG.DYES[Math.floor(Math.random() * SHEPHERD_CONFIG.DYES.length)];
-                        record.targetDyeSheep = whiteSheep;
-                        record.chosenDye = dyeDef;
-                        equipDye(villager, dyeDef.itemId);
-                        const dist = distance(villager.location, whiteSheep.location);
-                        if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
-                            record.state = ShepherdState.DYEING;
-                            record.timer = 25;
-                        } else {
-                            record.state = ShepherdState.APPROACHING_DYE;
-                            record.timer = 100;
-                        }
-                        break;
-                    }
-
-                    // 4. Secondary: Loom workstation interaction
-                    if (Math.random() < 0.35) {
-                        const loom = findNearbyLoom(villager.dimension, villager.location, SHEPHERD_CONFIG.LOOM_SEARCH_RADIUS);
-                        if (loom) {
-                            record.targetLoom = loom;
-                            const dist = distance(villager.location, loom.pos);
-                            if (dist <= SHEPHERD_CONFIG.LOOM_USE_DISTANCE) {
-                                record.state = ShepherdState.WEAVING_LOOM;
-                                record.timer = 30;
-                            } else {
-                                record.state = ShepherdState.APPROACHING_LOOM;
-                                record.timer = 90;
+                        // Step 0: Scan for closest shearable sheep
+                        if (currentStep === 0) {
+                            const sheep = findNearbyShearableSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
+                            if (sheep && !isTargetUnreachable(sheep)) {
+                                record.targetSheep = sheep;
+                                const dist = distance(villager.location, sheep.location);
+                                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                                    record.state = ShepherdState.SHEARING;
+                                    record.timer = SHEPHERD_CONFIG.SHEAR_ANIMATION_TICKS;
+                                } else {
+                                    record.state = ShepherdState.APPROACHING;
+                                    record.timer = 120;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                    try {
+                                        villager.triggerEvent("rpc:start_approach_sheep");
+                                    } catch {}
+                                }
+                                actionFound = true;
+                                break;
                             }
-                            break;
                         }
+
+                        // Step 1: Scan for sheared sheep that need wheat to regrow wool
+                        else if (currentStep === 1) {
+                            const shearedSheep = findNearbyShearedSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
+                            if (shearedSheep && !isTargetUnreachable(shearedSheep)) {
+                                record.targetFeedSheep = shearedSheep;
+                                equipWheat(villager);
+                                const dist = distance(villager.location, shearedSheep.location);
+                                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                                    record.state = ShepherdState.FEEDING;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = ShepherdState.APPROACHING_FEED;
+                                    record.timer = 100;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
+                            }
+                        }
+
+                        // Step 2: Scan for white sheep to dye into vibrant colors
+                        else if (currentStep === 2) {
+                            const whiteSheep = findNearbyWhiteSheep(villager.dimension, villager.location, SHEPHERD_CONFIG.SHEEP_SEARCH_RADIUS);
+                            if (whiteSheep && !isTargetUnreachable(whiteSheep) && SHEPHERD_CONFIG.DYES && SHEPHERD_CONFIG.DYES.length > 0) {
+                                const dyeDef = SHEPHERD_CONFIG.DYES[Math.floor(Math.random() * SHEPHERD_CONFIG.DYES.length)];
+                                record.targetDyeSheep = whiteSheep;
+                                record.chosenDye = dyeDef;
+                                equipDye(villager, dyeDef.itemId);
+                                const dist = distance(villager.location, whiteSheep.location);
+                                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                                    record.state = ShepherdState.DYEING;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = ShepherdState.APPROACHING_DYE;
+                                    record.timer = 100;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
+                            }
+                        }
+
+                        // Step 3: Loom workstation interaction
+                        else if (currentStep === 3) {
+                            const loom = findNearbyLoom(villager.dimension, villager.location, SHEPHERD_CONFIG.LOOM_SEARCH_RADIUS);
+                            if (loom && !isTargetUnreachable(loom.pos)) {
+                                record.targetLoom = loom;
+                                const dist = distance(villager.location, loom.pos);
+                                if (dist <= SHEPHERD_CONFIG.LOOM_USE_DISTANCE) {
+                                    record.state = ShepherdState.WEAVING_LOOM;
+                                    record.timer = 30;
+                                } else {
+                                    record.state = ShepherdState.APPROACHING_LOOM;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!actionFound) {
+                        record.timer = 20;
                     }
                 }
                 break;
@@ -327,28 +365,32 @@ export class ShepherdManager {
                     break;
                 }
 
-                try {
-                    const sLoc = record.targetSheep.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, sLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = sLoc.x - villager.location.x;
-                    const dz = sLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetSheep.location);
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
+                    if (record.targetSheep) markTargetUnreachable(record.targetSheep, 400);
+                    record.step = ((record.step || 0) + 1) % 4;
+                    record.state = ShepherdState.IDLE;
+                    record.targetSheep = null;
+                    record.timer = 1;
+                    break;
+                }
+
+                const sLoc = record.targetSheep.location;
+                smoothMoveTowards(villager, sLoc, { speed: 0.16, stopDistance: SHEPHERD_CONFIG.SHEAR_DISTANCE, lookTarget: sLoc });
+
+                const dist = distance(curLoc, sLoc);
                 if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
                     try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
                     record.state = ShepherdState.SHEARING;
                     record.timer = SHEPHERD_CONFIG.SHEAR_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    try { villager.triggerEvent("rpc:stop_approach_sheep"); } catch {}
-                    record.state = ShepherdState.IDLE;
-                    record.targetSheep = null;
-                    record.timer = 20;
                 }
                 break;
             }
@@ -378,27 +420,31 @@ export class ShepherdManager {
 
                 if (record.timer % 20 === 0) equipWheat(villager);
 
-                try {
-                    const sLoc = record.targetFeedSheep.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, sLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = sLoc.x - villager.location.x;
-                    const dz = sLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetFeedSheep.location);
-                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
-                    record.state = ShepherdState.FEEDING;
-                    record.timer = 25;
-                } else if (record.timer <= 0) {
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.targetFeedSheep) markTargetUnreachable(record.targetFeedSheep, 400);
+                    record.step = ((record.step || 0) + 1) % 4;
                     record.state = ShepherdState.IDLE;
                     record.targetFeedSheep = null;
                     equipShears(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    break;
+                }
+
+                const sLoc = record.targetFeedSheep.location;
+                smoothMoveTowards(villager, sLoc, { speed: 0.16, stopDistance: SHEPHERD_CONFIG.SHEAR_DISTANCE, lookTarget: sLoc });
+
+                const dist = distance(curLoc, sLoc);
+                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                    record.state = ShepherdState.FEEDING;
+                    record.timer = 25;
                 }
                 break;
             }
@@ -429,27 +475,31 @@ export class ShepherdManager {
 
                 if (record.timer % 20 === 0) equipDye(villager, record.chosenDye.itemId);
 
-                try {
-                    const sLoc = record.targetDyeSheep.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, sLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = sLoc.x - villager.location.x;
-                    const dz = sLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetDyeSheep.location);
-                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
-                    record.state = ShepherdState.DYEING;
-                    record.timer = 25;
-                } else if (record.timer <= 0) {
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.targetDyeSheep) markTargetUnreachable(record.targetDyeSheep, 400);
+                    record.step = ((record.step || 0) + 1) % 4;
                     record.state = ShepherdState.IDLE;
                     record.targetDyeSheep = null;
                     equipShears(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    break;
+                }
+
+                const sLoc = record.targetDyeSheep.location;
+                smoothMoveTowards(villager, sLoc, { speed: 0.16, stopDistance: SHEPHERD_CONFIG.SHEAR_DISTANCE, lookTarget: sLoc });
+
+                const dist = distance(curLoc, sLoc);
+                if (dist <= SHEPHERD_CONFIG.SHEAR_DISTANCE) {
+                    record.state = ShepherdState.DYEING;
+                    record.timer = 25;
                 }
                 break;
             }
@@ -477,26 +527,30 @@ export class ShepherdManager {
                     break;
                 }
 
-                try {
-                    const lPos = { x: record.targetLoom.pos.x + 0.5, y: record.targetLoom.pos.y, z: record.targetLoom.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, lPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = lPos.x - villager.location.x;
-                    const dz = lPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetLoom.pos);
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.targetLoom) markTargetUnreachable(record.targetLoom.pos, 400);
+                    record.step = ((record.step || 0) + 1) % 4;
+                    record.state = ShepherdState.IDLE;
+                    record.targetLoom = null;
+                    record.timer = 1;
+                    break;
+                }
+
+                const lPos = { x: record.targetLoom.pos.x + 0.5, y: record.targetLoom.pos.y, z: record.targetLoom.pos.z + 0.5 };
+                smoothMoveTowards(villager, lPos, { speed: 0.16, stopDistance: SHEPHERD_CONFIG.LOOM_USE_DISTANCE, lookTarget: lPos });
+
+                const dist = distance(curLoc, record.targetLoom.pos);
                 if (dist <= SHEPHERD_CONFIG.LOOM_USE_DISTANCE) {
                     record.state = ShepherdState.WEAVING_LOOM;
                     record.timer = 30;
-                } else if (record.timer <= 0) {
-                    record.state = ShepherdState.IDLE;
-                    record.targetLoom = null;
-                    record.timer = 20;
                 }
                 break;
             }

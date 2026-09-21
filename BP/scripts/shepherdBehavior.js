@@ -6,7 +6,7 @@
 
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { SHEPHERD_CONFIG } from "./config.js";
-import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
 import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
@@ -102,7 +102,7 @@ export function findNearbyShearableSheep(dimension, location, radius = SHEPHERD_
     let closestDist = Infinity;
 
     for (const sheep of candidates) {
-        if (isShearableSheep(sheep)) {
+        if (isShearableSheep(sheep) && !isTargetUnreachable(sheep)) {
             const d = distance(location, sheep.location);
             if (d < closestDist) {
                 closestDist = d;
@@ -182,10 +182,7 @@ export function performShear(villager, sheep) {
     const sheepLoc = sheep.location;
 
     // 1. Turn shepherd to face sheep
-    try {
-        const rot = getLookRotation(villager.location, sheepLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-    } catch {}
+    setEntityLook(villager, sheepLoc);
 
     // 2. Play arm raising / snip animation
     try {
@@ -314,6 +311,7 @@ export function findNearbyWhiteSheep(dimension, location, radius = SHEPHERD_CONF
             if (sheep.getComponent("minecraft:is_baby")) continue;
             if (sheep.getComponent("minecraft:is_sheared")) continue;
             if (sheep.hasTag("rpc:recently_dyed")) continue;
+            if (isTargetUnreachable(sheep)) continue;
             const colorComp = sheep.getComponent("minecraft:color");
             if (colorComp && colorComp.value === 0) {
                 const d = distance(location, sheep.location);
@@ -338,9 +336,8 @@ export function performDyeSheep(villager, sheep, dyeDef) {
     const dim = villager.dimension;
     const sLoc = sheep.location;
 
+    setEntityLook(villager, sLoc);
     try {
-        const rot = getLookRotation(villager.location, sLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -388,6 +385,7 @@ export function findNearbyShearedSheep(dimension, location, radius = SHEPHERD_CO
         try {
             if (sheep.getComponent("minecraft:is_baby")) continue;
             if (sheep.hasTag("rpc:recently_fed")) continue;
+            if (isTargetUnreachable(sheep)) continue;
             if (sheep.getComponent("minecraft:is_sheared")) {
                 const d = distance(location, sheep.location);
                 if (d < closestDist) {
@@ -410,9 +408,8 @@ export function performFeedWheat(villager, sheep) {
     const dim = villager.dimension;
     const sLoc = sheep.location;
 
+    setEntityLook(villager, sLoc);
     try {
-        const rot = getLookRotation(villager.location, sLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -458,6 +455,7 @@ export function findNearbyPredators(dimension, location, radius = SHEPHERD_CONFI
                 try {
                     if (entity.getComponent("minecraft:is_tamed")) continue;
                 } catch {}
+                if (isTargetUnreachable(entity)) continue;
                 const d = distance(location, entity.location);
                 if (d < closestDist) {
                     closestDist = d;
@@ -480,9 +478,8 @@ export function performScarePredator(villager, predator) {
     const pLoc = predator.location;
     const vLoc = villager.location;
 
+    setEntityLook(villager, pLoc);
     try {
-        const rot = getLookRotation(vLoc, pLoc);
-        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -516,6 +513,7 @@ export function findNearbyLoom(dimension, location, radius = SHEPHERD_CONFIG.LOO
         for (let dz = -radius; dz <= radius; dz += 2) {
             for (let dy = -2; dy <= 2; dy++) {
                 const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                if (isTargetUnreachable(pos)) continue;
                 try {
                     const block = dimension.getBlock(pos);
                     if (block && block.typeId === SHEPHERD_CONFIG.LOOM_ID) {
@@ -537,9 +535,8 @@ export function performLoomWeaving(villager, loomPos) {
     if (!villager || !villager.isValid() || !loomPos) return false;
     const dim = villager.dimension;
 
+    setEntityLook(villager, { x: loomPos.x + 0.5, y: loomPos.y + 0.5, z: loomPos.z + 0.5 });
     try {
-        const rot = getLookRotation(villager.location, { x: loomPos.x + 0.5, y: loomPos.y + 0.5, z: loomPos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 

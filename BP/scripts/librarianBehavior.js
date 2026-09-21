@@ -6,7 +6,7 @@
 
 import { ItemStack, EquipmentSlot } from "@minecraft/server";
 import { LIBRARIAN_CONFIG, FLETCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
 import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
@@ -73,6 +73,7 @@ export function findNearbyLectern(dimension, location, radius = LIBRARIAN_CONFIG
         for (let dz = -radius; dz <= radius; dz += 2) {
             for (let dy = -2; dy <= 2; dy++) {
                 const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
+                if (isTargetUnreachable(pos)) continue;
                 try {
                     const block = dimension.getBlock(pos);
                     if (block && block.typeId === LIBRARIAN_CONFIG.LECTERN_ID) {
@@ -121,9 +122,8 @@ export function performStudy(villager, lecternInfo) {
     const dim = villager.dimension;
     const pos = lecternInfo.pos;
 
+    setEntityLook(villager, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
     try {
-        const rot = getLookRotation(villager.location, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -226,7 +226,7 @@ export function findNearbySugarcanePlantingSpot(dimension, location, radius = LI
                         }
                     }
 
-                    if (hasWater) {
+                    if (hasWater && !isTargetUnreachable(airPos)) {
                         candidates.push({ groundPos: gPos, airPos: airPos });
                     }
                 } catch {}
@@ -248,9 +248,8 @@ export function performPlantSugarcane(villager, airPos) {
 
     const dim = villager.dimension;
 
+    setEntityLook(villager, airPos);
     try {
-        const rot = getLookRotation(villager.location, airPos);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -290,6 +289,7 @@ export function findGrownSugarcane(dimension, location, radius = LIBRARIAN_CONFI
         for (let dz = -radius; dz <= radius; dz += 2) {
             for (let dy = -2; dy <= 4; dy++) {
                 const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                if (isTargetUnreachable(pos)) continue;
                 try {
                     const block = dimension.getBlock(pos);
                     if (!block) continue;
@@ -325,9 +325,8 @@ export function performHarvestSugarcane(villager, sugarcaneInfo) {
     const dim = villager.dimension;
     const pos = sugarcaneInfo.pos;
 
+    setEntityLook(villager, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
     try {
-        const rot = getLookRotation(villager.location, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -397,9 +396,8 @@ export function performCraftBooks(villager, lecternPos) {
     if (!villager || !villager.isValid() || !lecternPos) return false;
     const dim = villager.dimension;
 
+    setEntityLook(villager, { x: lecternPos.x + 0.5, y: lecternPos.y + 0.5, z: lecternPos.z + 0.5 });
     try {
-        const rot = getLookRotation(villager.location, { x: lecternPos.x + 0.5, y: lecternPos.y + 0.5, z: lecternPos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -484,7 +482,7 @@ export function findNearbyAfflictedAlly(dimension, location, radius = LIBRARIAN_
     const negativeEffects = ["poison", "fatal_poison", "slowness", "weakness", "wither", "hunger", "nausea", "blindness", "mining_fatigue"];
 
     for (const ally of candidates) {
-        if (!ally || !ally.isValid()) continue;
+        if (!ally || !ally.isValid() || isTargetUnreachable(ally)) continue;
         for (const eff of negativeEffects) {
             try {
                 if (ally.getEffect(eff)) {
@@ -506,9 +504,8 @@ export function performDispelCurse(villager, ally) {
     if (!villager || !villager.isValid() || !ally || !ally.isValid()) return false;
     const dim = villager.dimension;
 
+    setEntityLook(villager, ally.location);
     try {
-        const rot = getLookRotation(villager.location, ally.location);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 

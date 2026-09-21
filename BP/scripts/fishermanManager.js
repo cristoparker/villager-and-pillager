@@ -24,7 +24,7 @@ import {
     findNearbyPondWater,
     performRestockFish
 } from "./fishingBehavior.js";
-import { getLookRotation, distance } from "./utils.js";
+import { getLookRotation, distance, smoothMoveTowards, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 
 export const FishermanState = {
@@ -128,6 +128,9 @@ export class FishermanManager {
             spot: null,
             timer: 30,
             fishingSession: null,
+            step: 0,
+            stuckTicks: 0,
+            lastLoc: null,
             navState: { lastPos: null, stuckTicks: 0, totalTicks: 0 }
         });
     }
@@ -206,78 +209,107 @@ export class FishermanManager {
                 record.timer--;
                 if (record.timer <= 0) {
                     record.timer = SCAN_CONFIG.SEARCH_INTERVAL_TICKS;
+                    const startStep = record.step || 0;
+                    let actionFound = false;
 
-                    // 1. If already standing near water shore, start fishing directly
-                    const nearWater = isWaterNear(villager.dimension, villager.location, 2.8);
-                    if (nearWater) {
-                        const session = startFishing(villager, null);
-                        if (session) {
-                            record.fishingSession = session;
-                            record.state = FishermanState.FISHING;
-                            break;
-                        }
-                    }
+                    for (let s = 0; s < 5; s++) {
+                        const currentStep = (startStep + s) % 5;
+                        record.step = (currentStep + 1) % 5;
 
-                    // 2. Secondary: Scan for stray village cats to feed and befriend
-                    if (Math.random() < 0.4) {
-                        const cat = findNearbyStrayCat(villager.dimension, villager.location, FISHERMAN_CONFIG.CAT_SEARCH_RADIUS);
-                        if (cat) {
-                            record.targetCat = cat;
-                            equipFish(villager, "minecraft:cod");
-                            const dist = distance(villager.location, cat.location);
-                            if (dist <= FISHERMAN_CONFIG.CAT_FEED_DISTANCE) {
-                                record.state = FishermanState.FEEDING_CAT;
-                                record.timer = 25;
-                            } else {
-                                record.state = FishermanState.APPROACHING_CAT;
-                                record.timer = 90;
+                        // Step 0: If already standing near water shore, start fishing directly
+                        if (currentStep === 0) {
+                            const nearWater = isWaterNear(villager.dimension, villager.location, 2.8);
+                            if (nearWater) {
+                                const session = startFishing(villager, null);
+                                if (session) {
+                                    record.fishingSession = session;
+                                    record.state = FishermanState.FISHING;
+                                    actionFound = true;
+                                    break;
+                                }
                             }
-                            break;
                         }
-                    }
 
-                    // 3. Secondary: Scan for Campfire to cook caught fish
-                    if (Math.random() < 0.35) {
-                        const campfire = findNearbyCampfire(villager.dimension, villager.location, FISHERMAN_CONFIG.CAMPFIRE_SEARCH_RADIUS);
-                        if (campfire) {
-                            record.targetCampfire = campfire;
-                            equipFish(villager, "minecraft:salmon");
-                            const dist = distance(villager.location, campfire.pos);
-                            if (dist <= 2.5) {
-                                record.state = FishermanState.COOKING_CAMPFIRE;
-                                record.timer = 25;
-                            } else {
-                                record.state = FishermanState.APPROACHING_CAMPFIRE;
-                                record.timer = 90;
+                        // Step 1: Scan for stray village cats to feed and befriend
+                        else if (currentStep === 1) {
+                            const cat = findNearbyStrayCat(villager.dimension, villager.location, FISHERMAN_CONFIG.CAT_SEARCH_RADIUS);
+                            if (cat && !isTargetUnreachable(cat)) {
+                                record.targetCat = cat;
+                                equipFish(villager, "minecraft:cod");
+                                const dist = distance(villager.location, cat.location);
+                                if (dist <= FISHERMAN_CONFIG.CAT_FEED_DISTANCE) {
+                                    record.state = FishermanState.FEEDING_CAT;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = FishermanState.APPROACHING_CAT;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
                             }
-                            break;
                         }
-                    }
 
-                    // 4. Secondary: Scan for pond water to restock tropical fish
-                    if (Math.random() < 0.3) {
-                        const pond = findNearbyPondWater(villager.dimension, villager.location, 14);
-                        if (pond) {
-                            record.targetPond = pond;
-                            equipBucket(villager, FISHERMAN_CONFIG.TROPICAL_FISH_BUCKET);
-                            const dist = distance(villager.location, pond.pos);
-                            if (dist <= 2.5) {
-                                record.state = FishermanState.RESTOCKING_POND;
-                                record.timer = 25;
-                            } else {
-                                record.state = FishermanState.APPROACHING_POND;
-                                record.timer = 90;
+                        // Step 2: Scan for Campfire to cook caught fish
+                        else if (currentStep === 2) {
+                            const campfire = findNearbyCampfire(villager.dimension, villager.location, FISHERMAN_CONFIG.CAMPFIRE_SEARCH_RADIUS);
+                            if (campfire && !isTargetUnreachable(campfire.pos)) {
+                                record.targetCampfire = campfire;
+                                equipFish(villager, "minecraft:salmon");
+                                const dist = distance(villager.location, campfire.pos);
+                                if (dist <= 2.5) {
+                                    record.state = FishermanState.COOKING_CAMPFIRE;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = FishermanState.APPROACHING_CAMPFIRE;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
                             }
-                            break;
+                        }
+
+                        // Step 3: Scan for pond water to restock tropical fish
+                        else if (currentStep === 3) {
+                            const pond = findNearbyPondWater(villager.dimension, villager.location, 14);
+                            if (pond && !isTargetUnreachable(pond.pos)) {
+                                record.targetPond = pond;
+                                equipBucket(villager, FISHERMAN_CONFIG.TROPICAL_FISH_BUCKET);
+                                const dist = distance(villager.location, pond.pos);
+                                if (dist <= 2.5) {
+                                    record.state = FishermanState.RESTOCKING_POND;
+                                    record.timer = 25;
+                                } else {
+                                    record.state = FishermanState.APPROACHING_POND;
+                                    record.timer = 90;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
+                            }
+                        }
+
+                        // Step 4: Scan for rivers and water bodies up to 48 blocks
+                        else if (currentStep === 4) {
+                            const spot = findBestFishingSpot(villager.dimension, villager.location);
+                            if (spot && spot.standPos && !isTargetUnreachable(spot.standPos)) {
+                                record.spot = spot;
+                                record.state = FishermanState.NAVIGATING;
+                                record.navState = { lastPos: null, stuckTicks: 0, totalTicks: 0 };
+                                record.stuckTicks = 0;
+                                record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                actionFound = true;
+                                break;
+                            }
                         }
                     }
 
-                    // 5. Scan for rivers and water bodies up to 48 blocks
-                    const spot = findBestFishingSpot(villager.dimension, villager.location);
-                    if (spot) {
-                        record.spot = spot;
-                        record.state = FishermanState.NAVIGATING;
-                        record.navState = { lastPos: null, stuckTicks: 0, totalTicks: 0 };
+                    if (!actionFound) {
+                        record.timer = 25;
                     }
                 }
                 break;
@@ -295,27 +327,30 @@ export class FishermanManager {
 
                 if (record.timer % 20 === 0) equipFish(villager, "minecraft:cod");
 
-                try {
-                    const cLoc = record.targetCat.location;
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, cLoc);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = cLoc.x - villager.location.x;
-                    const dz = cLoc.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.16, y: 0, z: (dz / len) * 0.16 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetCat.location);
-                if (dist <= FISHERMAN_CONFIG.CAT_FEED_DISTANCE) {
-                    record.state = FishermanState.FEEDING_CAT;
-                    record.timer = 25;
-                } else if (record.timer <= 0) {
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.targetCat) markTargetUnreachable(record.targetCat, 400);
                     record.state = FishermanState.IDLE;
                     record.targetCat = null;
                     equipFishingRod(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    break;
+                }
+
+                const cLoc = record.targetCat.location;
+                smoothMoveTowards(villager, cLoc, { speed: 0.16, stopDistance: FISHERMAN_CONFIG.CAT_FEED_DISTANCE, lookTarget: cLoc });
+
+                const dist = distance(curLoc, cLoc);
+                if (dist <= FISHERMAN_CONFIG.CAT_FEED_DISTANCE) {
+                    record.state = FishermanState.FEEDING_CAT;
+                    record.timer = 25;
                 }
                 break;
             }
@@ -345,27 +380,30 @@ export class FishermanManager {
 
                 if (record.timer % 20 === 0) equipFish(villager, "minecraft:salmon");
 
-                try {
-                    const cPos = { x: record.targetCampfire.pos.x + 0.5, y: record.targetCampfire.pos.y, z: record.targetCampfire.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, cPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = cPos.x - villager.location.x;
-                    const dz = cPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.16, y: 0, z: (dz / len) * 0.16 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetCampfire.pos);
-                if (dist <= 2.5) {
-                    record.state = FishermanState.COOKING_CAMPFIRE;
-                    record.timer = 25;
-                } else if (record.timer <= 0) {
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.targetCampfire) markTargetUnreachable(record.targetCampfire.pos, 400);
                     record.state = FishermanState.IDLE;
                     record.targetCampfire = null;
                     equipFishingRod(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    break;
+                }
+
+                const cPos = { x: record.targetCampfire.pos.x + 0.5, y: record.targetCampfire.pos.y, z: record.targetCampfire.pos.z + 0.5 };
+                smoothMoveTowards(villager, cPos, { speed: 0.16, stopDistance: 2.2, lookTarget: cPos });
+
+                const dist = distance(curLoc, record.targetCampfire.pos);
+                if (dist <= 2.5) {
+                    record.state = FishermanState.COOKING_CAMPFIRE;
+                    record.timer = 25;
                 }
                 break;
             }
@@ -395,27 +433,30 @@ export class FishermanManager {
 
                 if (record.timer % 20 === 0) equipBucket(villager, FISHERMAN_CONFIG.TROPICAL_FISH_BUCKET);
 
-                try {
-                    const pPos = { x: record.targetPond.pos.x + 0.5, y: record.targetPond.pos.y, z: record.targetPond.pos.z + 0.5 };
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, pPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = pPos.x - villager.location.x;
-                    const dz = pPos.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.16, y: 0, z: (dz / len) * 0.16 });
-                } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
 
-                const dist = distance(villager.location, record.targetPond.pos);
-                if (dist <= 2.5) {
-                    record.state = FishermanState.RESTOCKING_POND;
-                    record.timer = 25;
-                } else if (record.timer <= 0) {
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.targetPond) markTargetUnreachable(record.targetPond.pos, 400);
                     record.state = FishermanState.IDLE;
                     record.targetPond = null;
                     equipFishingRod(villager);
-                    record.timer = 20;
+                    record.timer = 1;
+                    break;
+                }
+
+                const pPos = { x: record.targetPond.pos.x + 0.5, y: record.targetPond.pos.y, z: record.targetPond.pos.z + 0.5 };
+                smoothMoveTowards(villager, pPos, { speed: 0.16, stopDistance: 2.2, lookTarget: pPos });
+
+                const dist = distance(curLoc, record.targetPond.pos);
+                if (dist <= 2.5) {
+                    record.state = FishermanState.RESTOCKING_POND;
+                    record.timer = 25;
                 }
                 break;
             }
@@ -437,16 +478,21 @@ export class FishermanManager {
             case FishermanState.NAVIGATING: {
                 equipFishingRod(villager);
 
-                if (record.spot && record.spot.standPos) {
-                    try {
-                        const rot = getLookRotation(villager.location, record.spot.standPos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        const dx = record.spot.standPos.x - villager.location.x;
-                        const dz = record.spot.standPos.z - villager.location.z;
-                        const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                        villager.applyImpulse({ x: (dx / len) * 0.16, y: 0, z: (dz / len) * 0.16 });
-                    } catch {}
+                if (!record.spot || !record.spot.standPos) {
+                    record.state = FishermanState.IDLE;
+                    record.timer = 10;
+                    break;
                 }
+
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                smoothMoveTowards(villager, record.spot.standPos, { speed: 0.16, stopDistance: 1.8, lookTarget: record.spot.waterPos || record.spot.standPos });
 
                 const result = checkNavigationProgress(villager, record.spot, record.navState);
                 if (result.reached) {
@@ -458,9 +504,10 @@ export class FishermanManager {
                         record.state = FishermanState.COOLDOWN;
                         record.timer = 20;
                     }
-                } else if (result.stuck) {
-                    record.state = FishermanState.COOLDOWN;
-                    record.timer = 25;
+                } else if (result.stuck || record.stuckTicks > 45) {
+                    markTargetUnreachable(record.spot.standPos, 400);
+                    record.state = FishermanState.IDLE;
+                    record.timer = 1;
                     record.spot = null;
                 }
                 break;

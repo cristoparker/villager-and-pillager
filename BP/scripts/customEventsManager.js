@@ -9,7 +9,7 @@
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { distance, playSoundSafe, spawnParticleSafe, getLookRotation } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
-import { summonAllVillagers } from "./summonHelper.js";
+import { summonAllVillagers, VILLAGER_PROFESSIONS } from "./summonHelper.js";
 
 // Armorer behaviors
 import {
@@ -131,16 +131,38 @@ export class CustomEventsManager {
 
     /**
      * Dispatches an event command.
+     * Supports chat !<command>, scriptevent rpc:<command>, and entity event tags.
      * @param {string} commandName 
      * @param {Entity|null} sourceEntity 
      * @param {string} args 
      */
     handleEventCommand(commandName, sourceEntity = null, args = "") {
-        const cmd = commandName.toLowerCase().replace("rpc:", "").replace("!", "").trim();
+        if (!commandName) return;
+        let clean = commandName.trim().toLowerCase();
+        while (clean.startsWith("!") || clean.startsWith("-") || clean.startsWith("/")) {
+            clean = clean.substring(1).trim();
+        }
+        clean = clean.replace("rpc:", "").trim();
+
+        const parts = clean.split(/\s+/);
+        const first = parts[0] || "";
+        const second = parts[1] || "";
+        const normalized = clean.replace(/[\s\-]+/g, "_");
         const dim = sourceEntity?.dimension || world.getDimension("overworld");
         const origin = sourceEntity?.location || { x: 0, y: 64, z: 0 };
 
-        switch (cmd) {
+        // Handle specific summon commands: e.g. !summon armorer, !summon farmer, etc.
+        if (first === "summon") {
+            if (!second || second === "all" || second === "villagers") {
+                summonAllVillagers(sourceEntity, this.managers);
+                return;
+            } else {
+                this.executeSummonSingle(sourceEntity, dim, origin, second);
+                return;
+            }
+        }
+
+        switch (normalized) {
             // ==========================================
             // ARMORER EVENTS
             // ==========================================
@@ -176,7 +198,8 @@ export class CustomEventsManager {
             }
 
             case "feed_baby":
-            case "feed_animals": {
+            case "feed_animals":
+            case "feed_baby_animal": {
                 this.executeFeedBaby(sourceEntity, dim, origin);
                 break;
             }
@@ -194,13 +217,15 @@ export class CustomEventsManager {
             }
 
             case "bonemeal":
+            case "bone_meal":
             case "grow_crops": {
                 this.executeBonemeal(sourceEntity, dim, origin);
                 break;
             }
 
             case "share_food":
-            case "feed_villagers": {
+            case "feed_villagers":
+            case "feed_villager": {
                 this.executeShareFood(sourceEntity, dim, origin);
                 break;
             }
@@ -805,6 +830,55 @@ export class CustomEventsManager {
             spawnParticleSafe(dim, "minecraft:enchanting_table_particle", { x: librarian.location.x, y: librarian.location.y + 1.2, z: librarian.location.z });
             this.notify(source, "§3[Librarian] Bestowed enchantment knowledge and wisdom!");
         } catch {}
+    }
+
+    executeSummonSingle(source, dim, origin, profName) {
+        const query = profName.toLowerCase().replace("rpc:", "").trim();
+        const profDef = VILLAGER_PROFESSIONS.find(p => p.id === query || p.id.includes(query) || p.displayName.toLowerCase().includes(query));
+
+        if (!profDef) {
+            const available = VILLAGER_PROFESSIONS.map(p => p.id).join(", ");
+            this.notify(source, `§c[Villager Addon] Unknown profession: §f${profName}§c. Available: §a${available}`);
+            return;
+        }
+
+        try {
+            const rot = source?.getRotation ? source.getRotation() : { x: 0, y: 0 };
+            const yawRad = (rot.y * Math.PI) / 180.0;
+            const spawnPos = {
+                x: origin.x + (-Math.sin(yawRad) * 2.5),
+                y: origin.y,
+                z: origin.z + (Math.cos(yawRad) * 2.5)
+            };
+
+            const villager = dim.spawnEntity("minecraft:villager_v2", spawnPos);
+            if (!villager || !villager.isValid()) return;
+
+            system.runTimeout(() => {
+                if (!villager || !villager.isValid()) return;
+                try {
+                    villager.triggerEvent("minecraft:villager_spawned");
+                    villager.triggerEvent("minecraft:entity_spawned");
+                    if (profDef.customEvent) villager.triggerEvent(profDef.customEvent);
+                    if (profDef.event) villager.triggerEvent(profDef.event);
+                    for (const tag of profDef.tags) villager.addTag(tag);
+
+                    if (profDef.defaultItem) {
+                        const equippable = villager.getComponent("minecraft:equippable");
+                        equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(profDef.defaultItem, 1));
+                    }
+
+                    const mgr = this.managers[`${profDef.id}Manager`];
+                    if (mgr && typeof mgr[`register${profDef.id.charAt(0).toUpperCase() + profDef.id.slice(1)}`] === "function") {
+                        mgr[`register${profDef.id.charAt(0).toUpperCase() + profDef.id.slice(1)}`](villager);
+                    }
+                } catch {}
+            }, 2);
+
+            this.notify(source, `§a[Villager Addon] Summoned a smart ${profDef.displayName}§a!`);
+        } catch (e) {
+            this.notify(source, `§c[Villager Addon] Failed to summon ${profName}: ${e}`);
+        }
     }
 
     /**

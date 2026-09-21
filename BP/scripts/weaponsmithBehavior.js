@@ -6,7 +6,7 @@
 
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { WEAPONSMITH_CONFIG, FLETCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
 
 /**
  * Equips iron sword in the weaponsmith's main hand.
@@ -65,6 +65,7 @@ export function findNearbyGrindstone(dimension, location, radius = WEAPONSMITH_C
         for (let dz = -radius; dz <= radius; dz += 2) {
             for (let dy = -2; dy <= 2; dy++) {
                 const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
+                if (isTargetUnreachable(pos)) continue;
                 try {
                     const block = dimension.getBlock(pos);
                     if (block && block.typeId === WEAPONSMITH_CONFIG.GRINDSTONE_ID) {
@@ -99,7 +100,7 @@ export function findNearbyMonsters(dimension, location, radius = WEAPONSMITH_CON
                 maxDistance: radius
             });
             for (const entity of entities) {
-                if (entity && entity.isValid()) {
+                if (entity && entity.isValid() && !isTargetUnreachable(entity)) {
                     const d = distance(location, entity.location);
                     if (d < closestDist) {
                         closestDist = d;
@@ -124,9 +125,8 @@ export function performSharpen(villager, grindstoneInfo) {
     const dim = villager.dimension;
     const pos = grindstoneInfo.pos;
 
+    setEntityLook(villager, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
     try {
-        const rot = getLookRotation(villager.location, { x: pos.x + 0.5, y: pos.y + 0.5, z: pos.z + 0.5 });
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -208,6 +208,7 @@ export function findNearbyCombatAllies(dimension, location, radius = WEAPONSMITH
                 if (!entity || !entity.isValid()) continue;
                 if (entity.hasTag("rpc:weaponsmith")) continue; // Don't buff self
                 if (entity.hasTag("rpc:sharpened")) continue; // Already buffed
+                if (isTargetUnreachable(entity)) continue;
 
                 const d = distance(location, entity.location);
                 if (d < closestDist && d > 0.8) {
@@ -230,9 +231,8 @@ export function performSharpenAlly(villager, ally) {
     const dim = villager.dimension;
     const aLoc = ally.location;
 
+    setEntityLook(villager, aLoc);
     try {
-        const rot = getLookRotation(villager.location, aLoc);
-        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 
@@ -297,9 +297,8 @@ export function performAttackMonster(villager, monster, useAxe = false) {
     const mLoc = monster.location;
     const vLoc = villager.location;
 
+    setEntityLook(villager, mLoc);
     try {
-        const rot = getLookRotation(vLoc, mLoc);
-        villager.teleport(vLoc, { rotation: { x: 0, y: rot.y } });
         villager.playAnimation("animation.villager.raise_arms");
     } catch {}
 

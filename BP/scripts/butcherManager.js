@@ -7,7 +7,7 @@
 
 import { world } from "@minecraft/server";
 import { BUTCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe, spawnParticleSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, smoothMoveTowards, setEntityLook, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { 
     equipAxe, 
     unequipAxe, 
@@ -125,7 +125,10 @@ export class ButcherManager {
             targetAnimal: null,
             smoker: null,
             meat: null,
-            timer: 20
+            timer: 20,
+            step: 0,
+            stuckTicks: 0,
+            lastLoc: null
         });
     }
 
@@ -210,8 +213,6 @@ export class ButcherManager {
                     equipAxe(villager);
 
                     // 1. PRIORITY 1: Check for nearby hostile monsters
-                    // Native Bedrock AI (melee_attack, attack, nearest_attackable_target)
-                    // automatically tracks and attacks monsters with the axe!
                     const monster = findNearbyMonsters(villager.dimension, villager.location, 16);
                     if (monster) {
                         record.state = ButcherState.COMBAT;
@@ -219,36 +220,51 @@ export class ButcherManager {
                         break;
                     }
 
-                    // If already holding meat, search for a Smoker to cook it!
-                    if (record.meat) {
-                        const smoker = findNearestSmoker(villager.dimension, villager.location, BUTCHER_CONFIG.SMOKER_SEARCH_RADIUS);
-                        if (smoker) {
-                            record.smoker = smoker;
-                            record.state = ButcherState.APPROACHING_SMOKER;
-                            record.timer = 200; // 10 seconds to reach smoker
-                            try {
-                                villager.triggerEvent("rpc:start_approach_smoker");
-                            } catch {}
-                            break;
+                    const currentStep = record.step || 0;
+                    let actionTaken = false;
+
+                    // Step 0: If already holding meat, search for a Smoker to cook it
+                    if (currentStep === 0) {
+                        if (record.meat) {
+                            const smoker = findNearestSmoker(villager.dimension, villager.location, BUTCHER_CONFIG.SMOKER_SEARCH_RADIUS);
+                            if (smoker) {
+                                record.smoker = smoker;
+                                record.stuckTicks = 0;
+                                record.lastLoc = { ...villager.location };
+                                record.state = ButcherState.APPROACHING_SMOKER;
+                                record.timer = 200; // 10 seconds to reach smoker
+                                try {
+                                    villager.triggerEvent("rpc:start_approach_smoker");
+                                } catch {}
+                                actionTaken = true;
+                            }
                         }
                     }
 
-                    // Otherwise, scan for nearby pigs and cows
-                    const animal = findNearbyPrey(villager.dimension, villager.location, BUTCHER_CONFIG.ANIMAL_SEARCH_RADIUS);
-                    if (animal) {
-                        record.targetAnimal = animal;
-                        const dist = distance(villager.location, animal.location);
-                        if (dist <= BUTCHER_CONFIG.ATTACK_DISTANCE) {
-                            record.state = ButcherState.SLAUGHTERING;
-                            record.timer = BUTCHER_CONFIG.SLAUGHTER_ANIMATION_TICKS;
-                        } else {
-                            record.state = ButcherState.HUNTING;
-                            record.timer = 120; // 6 seconds to reach animal
-                            try {
-                                villager.triggerEvent("rpc:start_butcher_hunt");
-                            } catch {}
+                    // Step 1: Scan for nearby pigs and cows
+                    if (!actionTaken && (currentStep === 1 || !record.meat)) {
+                        const animal = findNearbyPrey(villager.dimension, villager.location, BUTCHER_CONFIG.ANIMAL_SEARCH_RADIUS);
+                        if (animal) {
+                            record.targetAnimal = animal;
+                            record.stuckTicks = 0;
+                            record.lastLoc = { ...villager.location };
+                            const dist = distance(villager.location, animal.location);
+                            if (dist <= BUTCHER_CONFIG.ATTACK_DISTANCE) {
+                                record.state = ButcherState.SLAUGHTERING;
+                                record.timer = BUTCHER_CONFIG.SLAUGHTER_ANIMATION_TICKS;
+                            } else {
+                                record.state = ButcherState.HUNTING;
+                                record.timer = 120; // 6 seconds to reach animal
+                                try {
+                                    villager.triggerEvent("rpc:start_butcher_hunt");
+                                } catch {}
+                            }
+                            actionTaken = true;
                         }
                     }
+
+                    // If neither action was taken or target unavailable, advance step to prevent loop
+                    record.step = (currentStep + 1) % 2;
                 }
                 break;
             }
@@ -296,11 +312,25 @@ export class ButcherManager {
                     } catch {}
                     record.state = ButcherState.IDLE;
                     record.targetAnimal = null;
+                    record.step = ((record.step || 0) + 1) % 2;
                     record.timer = 10;
                     break;
                 }
 
-                // Native melee / follow_mob moves the butcher smoothly towards the pig/cow
+                // Smooth movement towards the animal
+                smoothMoveTowards(villager, record.targetAnimal.location, {
+                    stopDistance: BUTCHER_CONFIG.ATTACK_DISTANCE,
+                    speed: 0.16
+                });
+
+                // Stuck detection
+                if (record.lastLoc && distance(villager.location, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastLoc = { ...villager.location };
+                }
+
                 const dist = distance(villager.location, record.targetAnimal.location);
                 if (dist <= BUTCHER_CONFIG.ATTACK_DISTANCE) {
                     try {
@@ -308,14 +338,16 @@ export class ButcherManager {
                     } catch {}
                     record.state = ButcherState.SLAUGHTERING;
                     record.timer = BUTCHER_CONFIG.SLAUGHTER_ANIMATION_TICKS;
-                } else if (record.timer <= 0) {
-                    // Timeout pursuing this animal
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
+                    // Stuck or timeout pursuing this animal: blacklist target and advance step
+                    if (record.targetAnimal) markTargetUnreachable(record.targetAnimal);
                     try {
                         villager.triggerEvent("rpc:stop_butcher_hunt");
                     } catch {}
-                    record.state = ButcherState.IDLE;
                     record.targetAnimal = null;
-                    record.timer = 20;
+                    record.step = ((record.step || 0) + 1) % 2;
+                    record.state = ButcherState.IDLE;
+                    record.timer = 5;
                     try {
                         villager.triggerEvent("minecraft:schedule_wander_villager");
                     } catch {}
@@ -342,6 +374,8 @@ export class ButcherManager {
                     const smoker = findNearestSmoker(villager.dimension, villager.location, BUTCHER_CONFIG.SMOKER_SEARCH_RADIUS);
                     if (smoker && record.meat) {
                         record.smoker = smoker;
+                        record.stuckTicks = 0;
+                        record.lastLoc = { ...villager.location };
                         record.state = ButcherState.APPROACHING_SMOKER;
                         record.timer = 200;
                         try {
@@ -375,8 +409,23 @@ export class ButcherManager {
                     } catch {}
                     record.state = ButcherState.IDLE;
                     record.smoker = null;
+                    record.step = ((record.step || 0) + 1) % 2;
                     record.timer = 10;
                     break;
+                }
+
+                // Smooth movement towards smoker
+                smoothMoveTowards(villager, record.smoker, {
+                    stopDistance: BUTCHER_CONFIG.SMOKER_LOAD_DISTANCE,
+                    speed: 0.15
+                });
+
+                // Stuck detection
+                if (record.lastLoc && distance(villager.location, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                    record.lastLoc = { ...villager.location };
                 }
 
                 // Check distance to smoker block
@@ -387,7 +436,7 @@ export class ButcherManager {
                     } catch {}
                     record.state = ButcherState.COOKING;
                     record.timer = 25; // 1.25s cooking interaction
-                } else if (record.timer <= 0) {
+                } else if (record.stuckTicks > 35 || record.timer <= 0) {
                     try {
                         villager.triggerEvent("rpc:stop_approach_smoker");
                     } catch {}
@@ -396,8 +445,11 @@ export class ButcherManager {
                         record.state = ButcherState.COOKING;
                         record.timer = 15;
                     } else {
-                        record.state = ButcherState.COOLDOWN;
-                        record.timer = 40;
+                        if (record.smoker) markTargetUnreachable(record.smoker);
+                        record.smoker = null;
+                        record.step = ((record.step || 0) + 1) % 2;
+                        record.state = ButcherState.IDLE;
+                        record.timer = 10;
                     }
                 }
                 break;
@@ -406,11 +458,10 @@ export class ButcherManager {
             case ButcherState.COOKING: {
                 record.timer--;
 
-                // Face the smoker on start of cooking (only on first tick to avoid freezing navigation)
+                // Face the smoker on start of cooking
                 if (record.timer === 24 && record.smoker) {
                     try {
-                        const rot = getLookRotation(villager.location, record.smoker);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
+                        setEntityLook(villager, record.smoker);
                     } catch {}
                 }
 

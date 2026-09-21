@@ -7,7 +7,7 @@
 
 import { world } from "@minecraft/server";
 import { FLETCHER_CONFIG } from "./config.js";
-import { distance, getLookRotation, playSoundSafe } from "./utils.js";
+import { distance, getLookRotation, playSoundSafe, smoothMoveTowards, setEntityLook, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 import { 
     equipRangedWeapon, 
@@ -36,7 +36,7 @@ export const FletcherState = {
 
 export class FletcherManager {
     constructor() {
-        /** @type {Map<string, { state: string, villager: Entity, targetBlock: any, shootingSpot: any, preferredWeapon: string, timer: number }>} */
+        /** @type {Map<string, { state: string, villager: Entity, targetBlock: any, shootingSpot: any, preferredWeapon: string, timer: number, targetMonster: any, fletchingTable: any, step: number, stuckTicks: number, lastLoc: any }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
     }
@@ -128,8 +128,13 @@ export class FletcherManager {
             villager: villager,
             targetBlock: null,
             shootingSpot: null,
+            targetMonster: null,
+            fletchingTable: null,
             preferredWeapon: weaponType,
-            timer: 20
+            timer: 20,
+            step: 0,
+            stuckTicks: 0,
+            lastLoc: null
         });
     }
 
@@ -226,52 +231,74 @@ export class FletcherManager {
                     // Ensure weapon is equipped
                     equipRangedWeapon(villager, record.preferredWeapon);
 
-                    // 1. PRIORITY 1: Check for nearby hostile monsters to shoot
-                    const monster = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
-                    if (monster) {
-                        record.targetMonster = monster;
-                        record.state = FletcherState.COMBAT;
-                        record.timer = 5; // Fast first shot
-                        break;
-                    }
+                    const startStep = record.step || 0;
+                    let actionFound = false;
 
-                    // 2. PRIORITY 2: Check for nearby Fletching Table to craft tipped arrows (45% chance)
-                    if (Math.random() < 0.45) {
-                        const table = findNearbyFletchingTable(villager.dimension, villager.location, FLETCHER_CONFIG.FLETCHING_TABLE_RADIUS);
-                        if (table) {
-                            record.fletchingTable = table;
-                            const d = distance(villager.location, table.pos);
-                            if (d <= 2.2) {
-                                record.state = FletcherState.CRAFTING_ARROWS;
-                                record.timer = 50;
-                                equipArrow(villager);
-                            } else {
-                                record.state = FletcherState.APPROACHING_FLETCHING_TABLE;
-                                record.timer = 120;
+                    for (let s = 0; s < 3; s++) {
+                        const currentStep = (startStep + s) % 3;
+                        record.step = (currentStep + 1) % 3;
+
+                        // Step 0: Check for nearby hostile monsters to shoot
+                        if (currentStep === 0) {
+                            const monster = findNearbyMonsters(villager.dimension, villager.location, FLETCHER_CONFIG.MONSTER_SEARCH_RADIUS);
+                            if (monster && !isTargetUnreachable(monster)) {
+                                record.targetMonster = monster;
+                                record.state = FletcherState.COMBAT;
+                                record.timer = 5;
+                                actionFound = true;
+                                break;
                             }
-                            break;
+                        }
+
+                        // Step 1: Check for nearby Fletching Table to craft tipped arrows
+                        else if (currentStep === 1) {
+                            const table = findNearbyFletchingTable(villager.dimension, villager.location, FLETCHER_CONFIG.FLETCHING_TABLE_RADIUS);
+                            if (table && !isTargetUnreachable(table.pos)) {
+                                record.fletchingTable = table;
+                                const d = distance(villager.location, table.pos);
+                                if (d <= 2.2) {
+                                    record.state = FletcherState.CRAFTING_ARROWS;
+                                    record.timer = 50;
+                                    equipArrow(villager);
+                                } else {
+                                    record.state = FletcherState.APPROACHING_FLETCHING_TABLE;
+                                    record.timer = 120;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                }
+                                actionFound = true;
+                                break;
+                            }
+                        }
+
+                        // Step 2: Check for nearby Target block in free time
+                        else if (currentStep === 2) {
+                            const targetBlock = findNearbyTargetBlock(villager.dimension, villager.location, FLETCHER_CONFIG.TARGET_BLOCK_SEARCH_RADIUS);
+                            if (targetBlock && !isTargetUnreachable(targetBlock)) {
+                                record.targetBlock = targetBlock;
+                                const d = distance(villager.location, targetBlock);
+
+                                if (d >= FLETCHER_CONFIG.PRACTICE_DISTANCE_MIN && d <= FLETCHER_CONFIG.PRACTICE_DISTANCE_MAX) {
+                                    record.state = FletcherState.PRACTICE_AIMING;
+                                    record.timer = FLETCHER_CONFIG.AIM_DURATION_TICKS;
+                                } else {
+                                    record.shootingSpot = findShootingSpot(villager.dimension, villager.location, targetBlock, FLETCHER_CONFIG.PRACTICE_DISTANCE_MIN, FLETCHER_CONFIG.PRACTICE_DISTANCE_MAX);
+                                    record.state = FletcherState.APPROACHING_TARGET;
+                                    record.timer = 140;
+                                    record.stuckTicks = 0;
+                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
+                                    try {
+                                        villager.triggerEvent("rpc:start_approach_target");
+                                    } catch {}
+                                }
+                                actionFound = true;
+                                break;
+                            }
                         }
                     }
 
-                    // 3. PRIORITY 3: Check for nearby Target block in free time
-                    const targetBlock = findNearbyTargetBlock(villager.dimension, villager.location, FLETCHER_CONFIG.TARGET_BLOCK_SEARCH_RADIUS);
-                    if (targetBlock) {
-                        record.targetBlock = targetBlock;
-                        const d = distance(villager.location, targetBlock);
-
-                        if (d >= FLETCHER_CONFIG.PRACTICE_DISTANCE_MIN && d <= FLETCHER_CONFIG.PRACTICE_DISTANCE_MAX) {
-                            // Already in good position
-                            record.state = FletcherState.PRACTICE_AIMING;
-                            record.timer = FLETCHER_CONFIG.AIM_DURATION_TICKS;
-                        } else {
-                            // Needs to get into comfortable shooting spot
-                            record.shootingSpot = findShootingSpot(villager.dimension, villager.location, targetBlock, FLETCHER_CONFIG.PRACTICE_DISTANCE_MIN, FLETCHER_CONFIG.PRACTICE_DISTANCE_MAX);
-                            record.state = FletcherState.APPROACHING_TARGET;
-                            record.timer = 140; // 7 seconds timeout to approach
-                            try {
-                                villager.triggerEvent("rpc:start_approach_target");
-                            } catch {}
-                        }
+                    if (!actionFound) {
+                        record.timer = 20;
                     }
                 }
                 break;
@@ -303,19 +330,11 @@ export class FletcherManager {
                 }
 
                 // Face monster
-                try {
-                    const rot = getLookRotation(villager.location, record.targetMonster.location);
-                    villager.teleport(villager.location, { rotation: { x: rot.x * 0.4, y: rot.y } });
-                } catch {}
+                setEntityLook(villager, record.targetMonster.location);
 
                 // Tactical repositioning: advance if too far, back up if too close
                 if (dist > 12.0) {
-                    const dx = record.targetMonster.location.x - villager.location.x;
-                    const dz = record.targetMonster.location.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    try {
-                        villager.applyImpulse({ x: (dx / len) * 0.15, y: 0, z: (dz / len) * 0.15 });
-                    } catch {}
+                    smoothMoveTowards(villager, record.targetMonster.location, { speed: 0.15, stopDistance: 10.0, lookTarget: record.targetMonster.location });
                 } else if (dist < 3.0) {
                     const dx = villager.location.x - record.targetMonster.location.x;
                     const dz = villager.location.z - record.targetMonster.location.z;
@@ -357,23 +376,31 @@ export class FletcherManager {
                     break;
                 }
 
-                // Face shooting spot / target block and walk towards it!
-                const dest = record.shootingSpot || record.targetBlock;
-                if (dest) {
-                    try {
-                        if (record.timer % 10 === 0) {
-                            const rot = getLookRotation(villager.location, dest);
-                            villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                        }
-                        const dx = dest.x - villager.location.x;
-                        const dz = dest.z - villager.location.z;
-                        const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                        villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                    } catch {}
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    try { villager.triggerEvent("rpc:stop_approach_target"); } catch {}
+                    if (record.targetBlock) markTargetUnreachable(record.targetBlock, 400);
+                    record.step = ((record.step || 0) + 1) % 3;
+                    record.state = FletcherState.IDLE;
+                    record.targetBlock = null;
+                    record.timer = 1;
+                    break;
                 }
 
-                const dist = distance(villager.location, record.targetBlock);
-                if ((dist >= FLETCHER_CONFIG.PRACTICE_DISTANCE_MIN && dist <= FLETCHER_CONFIG.PRACTICE_DISTANCE_MAX) || record.timer <= 0) {
+                const dest = record.shootingSpot || record.targetBlock;
+                if (dest) {
+                    smoothMoveTowards(villager, dest, { speed: 0.16, stopDistance: FLETCHER_CONFIG.PRACTICE_DISTANCE_MIN, lookTarget: record.targetBlock });
+                }
+
+                const dist = distance(curLoc, record.targetBlock);
+                if (dist >= FLETCHER_CONFIG.PRACTICE_DISTANCE_MIN && dist <= FLETCHER_CONFIG.PRACTICE_DISTANCE_MAX) {
                     try {
                         villager.triggerEvent("rpc:stop_approach_target");
                     } catch {}
@@ -395,31 +422,39 @@ export class FletcherManager {
                 }
 
                 record.timer--;
-                if (!record.fletchingTable || record.timer <= 0) {
+                if (!record.fletchingTable) {
                     record.state = FletcherState.IDLE;
-                    record.timer = 20;
+                    record.timer = 10;
+                    break;
+                }
+
+                const curLoc = villager.location;
+                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
+                    record.stuckTicks = (record.stuckTicks || 0) + 1;
+                } else {
+                    record.stuckTicks = 0;
+                }
+                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
+
+                if (record.stuckTicks > 35 || record.timer <= 0) {
+                    if (record.fletchingTable) markTargetUnreachable(record.fletchingTable.pos, 400);
+                    record.step = ((record.step || 0) + 1) % 3;
+                    record.state = FletcherState.IDLE;
+                    record.fletchingTable = null;
+                    record.timer = 1;
                     break;
                 }
 
                 const tablePos = record.fletchingTable.pos;
-                const d = distance(villager.location, tablePos);
+                const lookPos = { x: tablePos.x + 0.5, y: tablePos.y + 0.5, z: tablePos.z + 0.5 };
+                smoothMoveTowards(villager, lookPos, { speed: 0.16, stopDistance: 2.2, lookTarget: lookPos });
+
+                const d = distance(curLoc, tablePos);
                 if (d <= 2.2) {
                     record.state = FletcherState.CRAFTING_ARROWS;
                     record.timer = 50;
                     equipArrow(villager);
-                    break;
                 }
-
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, tablePos);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                    const dx = tablePos.x + 0.5 - villager.location.x;
-                    const dz = tablePos.z + 0.5 - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    villager.applyImpulse({ x: (dx / len) * 0.18, y: 0, z: (dz / len) * 0.18 });
-                } catch {}
                 break;
             }
 
