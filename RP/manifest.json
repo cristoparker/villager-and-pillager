@@ -1,18 +1,25 @@
 {
   "format_version": 2,
   "header": {
-    "name": "Fisherman Villager Addon (RP)",
-    "description": "Resource pack for Fisherman Villager Addon: bobber model, textures, and fishing visuals.",
+    "name": "Smart Villager Addon",
+    "description": "Smart Villager Addon brings your Minecraft villages to life! Villagers gain autonomous AI with dynamic jobs, authentic held tools, and workstation routines. They collect ground items, organize chests, build beds and workstations to expand villages, and defend against raids with combat tactics and magic. Upgrade your world with an intelligent, thriving villager civilization!",
     "uuid": "42d41ec9-c997-46eb-b96f-88dce42b677e",
     "version": [1, 0, 0],
     "min_engine_version": [1, 21, 0]
   },
   "modules": [
     {
-      "description": "Fisherman Villager Resource Module",
+      "description": "Smart Villager Resource Module",
       "type": "resources",
       "uuid": "ab64de6a-6936-4679-ad26-38d1f1f5313c",
       "version": [1, 0, 0]
     }
-  ]
+  ],
+  "metadata": {
+    "authors": [
+      "Renderphoenix Creatives"
+    ],
+    "license": "all rights are resereved, no permission for third party distribution, published only on Curseforge and MCPEDL",
+    "url": "renderphoenix.com"
+  }
 }

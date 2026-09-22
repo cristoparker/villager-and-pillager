@@ -1,0 +1,4 @@
+Smart Villager Addon (v1.0.0)
+Copyright (c) 2026 Renderphoenix Creatives (renderphoenix.com). All rights reserved.
+
+All rights are reserved, no permission for third party distribution, published only on Curseforge and MCPEDL.

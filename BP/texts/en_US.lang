@@ -1,6 +1,2 @@
 pack.name=Smart Villager Addon
 pack.description=Smart Villager Addon brings your Minecraft villages to life! Villagers gain autonomous AI with dynamic jobs, authentic held tools, and workstation routines. They collect ground items, organize chests, build beds and workstations to expand villages, and defend against raids with combat tactics and magic. Upgrade your world with an intelligent, thriving villager civilization!
-item.rpc:fishing_rod=Villager Fishing Rod
-item.rpc:shears=Shepherd Shears
-item.rpc:cleaver=Butcher Cleaver
-entity.rpc:fishing_bobber.name=Fishing Bobber

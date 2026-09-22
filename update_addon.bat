@@ -2,12 +2,12 @@
 setlocal enabledelayedexpansion
 
 echo ===================================================
-echo   Syncing Fisherman Villager Addon Development Packs
+echo   Syncing Smart Villager Addon Development Packs
 echo ===================================================
 
 set "BP_SRC=%~dp0BP"
 set "RP_SRC=%~dp0RP"
-set "MCADDON_DEST=%~dp0FishermanVillager.mcaddon"
+set "MCADDON_DEST=%~dp0SmartVillagerAddon.mcaddon"
 
 if not exist "%BP_SRC%" (
     echo [ERROR] BP directory not found at: %BP_SRC%
@@ -48,11 +48,11 @@ echo ---------------------------------------------------
 echo Synced packs to !SYNC_COUNT! location(s).
 echo ---------------------------------------------------
 
-:: 5. Also regenerate FishermanVillager.mcaddon
-echo Packaging FishermanVillager.mcaddon...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'BP', 'RP' -DestinationPath 'temp_addon.zip' -Force; Move-Item 'temp_addon.zip' 'FishermanVillager.mcaddon' -Force" >nul 2>&1
+:: 5. Also regenerate SmartVillagerAddon.mcaddon
+echo Packaging SmartVillagerAddon.mcaddon...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'BP', 'RP' -DestinationPath 'temp_addon.zip' -Force; Move-Item 'temp_addon.zip' 'SmartVillagerAddon.mcaddon' -Force" >nul 2>&1
 if exist "%MCADDON_DEST%" (
-    echo [OK] FishermanVillager.mcaddon updated!
+    echo [OK] SmartVillagerAddon.mcaddon updated!
 )
 
 echo.
@@ -69,8 +69,8 @@ echo ---------------------------------------------------
 echo Syncing to [%LABEL%]: %TARGET_DIR%
 echo ---------------------------------------------------
 
-set "BP_DEST=%TARGET_DIR%\development_behavior_packs\FishermanVillager_BP"
-set "RP_DEST=%TARGET_DIR%\development_resource_packs\FishermanVillager_RP"
+set "BP_DEST=%TARGET_DIR%\development_behavior_packs\SmartVillager_BP"
+set "RP_DEST=%TARGET_DIR%\development_resource_packs\SmartVillager_RP"
 
 if not exist "%BP_DEST%" mkdir "%BP_DEST%"
 robocopy "%BP_SRC%" "%BP_DEST%" /MIR /FFT /R:1 /W:1 /NFL /NDL /NJH /NJS /nc /ns /np
