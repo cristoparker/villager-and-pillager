@@ -4,7 +4,7 @@
     "name": "Smart Villager Addon",
     "description": "Smart Villager Addon brings your Minecraft villages to life! Villagers gain autonomous AI with dynamic jobs, authentic held tools, and workstation routines. They collect ground items, organize chests, build beds and workstations to expand villages, and defend against raids with combat tactics and magic. Upgrade your world with an intelligent, thriving villager civilization!",
     "uuid": "79197f4d-50a8-424f-96c3-54ab3ba149d1",
-    "version": [1, 0, 0],
+    "version": [1, 0, 1],
     "min_engine_version": [1, 21, 0]
   },
   "modules": [
@@ -12,14 +12,14 @@
       "description": "Smart Villager Data Module",
       "type": "data",
       "uuid": "1a0c27df-4c35-42c9-af22-a0f5af083e55",
-      "version": [1, 0, 0]
+      "version": [1, 0, 1]
     },
     {
       "description": "Smart Villager Script Module",
       "type": "script",
       "language": "javascript",
       "uuid": "0c21986e-ca12-4eb1-ac2d-33b11d862ff9",
-      "version": [1, 0, 0],
+      "version": [1, 0, 1],
       "entry": "scripts/main.js"
     }
   ],
@@ -30,7 +30,7 @@
     },
     {
       "uuid": "42d41ec9-c997-46eb-b96f-88dce42b677e",
-      "version": [1, 0, 0]
+      "version": [1, 0, 1]
     }
   ],
   "metadata": {

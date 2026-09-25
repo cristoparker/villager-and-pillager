@@ -257,7 +257,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
 system.afterEvents.scriptEventReceive.subscribe((event) => {
     try {
         if (event.id.startsWith("rpc:")) {
-            const player = event.sourceEntity || world.getAllPlayers()[0];
+            const player = event.sourceEntity || (typeof world.getAllPlayers === "function" ? world.getAllPlayers()[0] : (typeof world.getPlayers === "function" ? world.getPlayers()[0] : null));
             customEventsManager.handleEventCommand(event.id, player, event.message);
         }
     } catch (e) {

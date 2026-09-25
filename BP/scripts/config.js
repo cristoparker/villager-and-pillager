@@ -403,7 +403,7 @@ export const HOUSE_BUILD_CONFIG = {
     WALL_UPPER_BLOCK: "minecraft:oak_planks",
     WINDOW_BLOCK: "minecraft:glass_pane",
     ROOF_BLOCK: "minecraft:oak_planks",
-    DOOR_BLOCK: "minecraft:wooden_door",
+    DOOR_BLOCK: "minecraft:oak_door",
     BED_BLOCK: "minecraft:bed",
     LIGHT_BLOCK: "minecraft:torch",
     FURNITURE_BLOCK: "minecraft:crafting_table"

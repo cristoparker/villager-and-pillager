@@ -6,7 +6,7 @@
 
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { FARMER_CONFIG, FLETCHER_CONFIG } from "./config.js";
-import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace, isTargetUnreachable, markTargetUnreachable } from "./utils.js";
+import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace, isReplaceableSpace, isTargetUnreachable, markTargetUnreachable } from "./utils.js";
 import { notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**

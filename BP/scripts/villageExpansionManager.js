@@ -2265,8 +2265,8 @@ export class VillageExpansionManager {
                 const doorTop = { x: ox + 2, y: oy + 2, z: oz };
 
                 try {
-                    dim.runCommandAsync(`setblock ${doorBottom.x} ${doorBottom.y} ${doorBottom.z} wooden_door ["direction"=0,"upper_block_bit"=false] replace`);
-                    dim.runCommandAsync(`setblock ${doorTop.x} ${doorTop.y} ${doorTop.z} wooden_door ["direction"=0,"upper_block_bit"=true] replace`);
+                    dim.runCommandAsync(`setblock ${doorBottom.x} ${doorBottom.y} ${doorBottom.z} oak_door ["direction"=0,"upper_block_bit"=false] replace`);
+                    dim.runCommandAsync(`setblock ${doorTop.x} ${doorTop.y} ${doorTop.z} oak_door ["direction"=0,"upper_block_bit"=true] replace`);
                 } catch {}
 
                 try {

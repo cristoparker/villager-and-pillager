@@ -1,4 +1,4 @@
-{
+﻿{
   "format_version": "1.26.20",
   "minecraft:entity": {
     "description": {
@@ -1007,8 +1007,8 @@
           "value": 0.5
         },
         "minecraft:collision_box": {
-          "height": 1.96, // 0.98/0.5
-          "width": 0.98   // 0.49/0.5
+          "height": 1.96,
+          "width": 0.98
         }
       },
       "make_and_receive_love": {
@@ -2109,8 +2109,6 @@
         }
       },
       "home_schedule_villager": {},
-      // Every goal that has to do with villagers working should go here (work goals, secondary goals)
-      // so they can be successfuly removed on schedule change
       "job_specific_goals": {
         "minecraft:behavior.explore_outskirts": {},
         "minecraft:behavior.harvest_farm_block": {},
@@ -2693,9 +2691,6 @@
           "table": "loot_tables/entities/villager_toolsmith.json"
         }
       },
-      // A grouping of components that should never be added
-      // however, they are here to flush out any artifact component groups
-      // that might linger between villager job switches
       "trade_components": {
         "minecraft:behavior.trade_interest": {},
         "minecraft:economy_trade_table": {}
@@ -3017,7 +3012,6 @@
         }
       },
       "minecraft:start_celebrating": {
-        // Event must be called exactly this for village to fire it when a raid is won
         "add": {
           "component_groups": [
             "minecraft:celebrate"
@@ -3365,7 +3359,6 @@
       },
       "minecraft:entity_transformed": {
         "sequence": [
-          // Transform to baby villager
           {
             "filters": {
               "test": "has_component",
@@ -3381,7 +3374,6 @@
             }
           },
           {
-            // Transform to adult villager
             "filters": {
               "test": "has_component",
               "operator": "!=",
@@ -3389,7 +3381,6 @@
               "value": "minecraft:is_baby"
             },
             "sequence": [
-              // Transform to adult villager
               {
                 "add": {
                   "component_groups": [
@@ -3398,7 +3389,6 @@
                   ]
                 }
               },
-              // Transform to farmer villager
               {
                 "filters": {
                   "subject": "other",
@@ -3413,7 +3403,6 @@
                   ]
                 }
               },
-              // Transform to fisherman villager
               {
                 "filters": {
                   "subject": "other",
@@ -3428,7 +3417,6 @@
                   ]
                 }
               },
-              // Transform to shepherd villager
               {
                 "filters": {
                   "subject": "other",
@@ -3443,7 +3431,6 @@
                   ]
                 }
               },
-              // Transform to fletcher villager
               {
                 "filters": {
                   "subject": "other",
@@ -3458,7 +3445,6 @@
                   ]
                 }
               },
-              // Transform to librarian villager
               {
                 "filters": {
                   "subject": "other",
@@ -3473,7 +3459,6 @@
                   ]
                 }
               },
-              // Transform to cartographer villager
               {
                 "filters": {
                   "subject": "other",
@@ -3488,7 +3473,6 @@
                   ]
                 }
               },
-              // Transform to cleric villager
               {
                 "filters": {
                   "subject": "other",
@@ -3503,7 +3487,6 @@
                   ]
                 }
               },
-              // Transform to armorer villager
               {
                 "filters": {
                   "subject": "other",
@@ -3518,7 +3501,6 @@
                   ]
                 }
               },
-              // Transform to weaponsmith villager
               {
                 "filters": {
                   "subject": "other",
@@ -3533,7 +3515,6 @@
                   ]
                 }
               },
-              // Transform to toolsmith villager
               {
                 "filters": {
                   "subject": "other",
@@ -3548,7 +3529,6 @@
                   ]
                 }
               },
-              // Transform to butcher villager
               {
                 "filters": {
                   "subject": "other",
@@ -3563,7 +3543,6 @@
                   ]
                 }
               },
-              // Transform to leatherworker villager
               {
                 "filters": {
                   "subject": "other",
@@ -3578,7 +3557,6 @@
                   ]
                 }
               },
-              // Transform to mason villager
               {
                 "filters": {
                   "subject": "other",
@@ -3596,7 +3574,6 @@
             ]
           },
           {
-            // Transform from zombie to correct villager skin (mark var already set)
             "filters": {
               "test": "is_family",
               "operator": "==",
@@ -3751,7 +3728,6 @@
             ]
           },
           {
-            // Transform from v1 - > v2 to correct villager skin (mark var not set so test biome)
             "filters": {
               "test": "is_family",
               "operator": "==",

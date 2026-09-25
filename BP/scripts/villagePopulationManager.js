@@ -12,7 +12,7 @@ import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { VILLAGER_PROFESSIONS } from "./summonHelper.js";
 import { getVillagerProfession, registerVillagerIntoManager } from "./professionHelper.js";
 import { distance, playSoundSafe, spawnParticleSafe, isSolidGround, isPassableBlock } from "./utils.js";
-import { addPoiToCache } from "./villageExpansionManager.js";
+import { addPoiToCache, villagePoiCache } from "./villageExpansionManager.js";
 
 const DYNAMIC_PROPERTY_KEY = "rpc:populated_villages";
 const VILLAGE_SEPARATION_RADIUS = 100; // Minimum block distance between distinct villages
@@ -97,7 +97,7 @@ export class VillagePopulationManager {
         if (this.scanIntervalTicks % 100 !== 0) return; // Check every 5 seconds (fast & light)
 
         try {
-            const players = world.getAllPlayers();
+            const players = typeof world.getAllPlayers === "function" ? world.getAllPlayers() : (typeof world.getPlayers === "function" ? world.getPlayers() : []);
             for (const player of players) {
                 if (!player || !player.isValid()) continue;
                 this.checkAreaForVillage(player.dimension, player.location);
