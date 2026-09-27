@@ -242,7 +242,6 @@ export function performFortifyAlly(villager, ally) {
     } catch {}
 
     playSoundSafe(dim, "random.anvil_use", aLoc, { volume: 0.9, pitch: 1.2 });
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: aLoc.x, y: aLoc.y + 1.2, z: aLoc.z });
     spawnParticleSafe(dim, "minecraft:totem_particle", { x: aLoc.x, y: aLoc.y + 1.0, z: aLoc.z });
 
@@ -371,7 +370,6 @@ export function performConstructGolem(villager, blastFurnacePos) {
         console.warn(`[Armorer] Failed to spawn Iron Golem: ${e}`);
     }
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 1.0, pitch: 1.0 });
     return true;
 }
 
@@ -607,7 +605,6 @@ export function performAssembleRaidGolem(villager, spotInfo) {
             playSoundSafe(dim, "random.anvil_land", spawnPos, { volume: 1.0, pitch: 0.8 });
 
             if (villager && villager.isValid()) {
-                playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 1.0, pitch: 1.05 });
                 equipIngot(villager);
             }
         } catch (e) {

@@ -1,6 +1,6 @@
 /**
  * Fisherman Villager Addon - Butcher Manager Module (Namespace: rpc)
- * Coordinates detection of butcher villagers, equips them with an iron axe/cleaver,
+ * Coordinates detection of butcher villagers, equips them with an iron axe,
  * oversees hunting of nearby adult pigs & cows with native non-jumping walking,
  * collects dropped fresh meats, navigates to village Smokers, and places coal & meat inside!
  */
@@ -95,7 +95,7 @@ export class ButcherManager {
                     try {
                         const equippable = villager.getComponent("minecraft:equippable");
                         const item = equippable?.getEquipment("Mainhand");
-                        if (item && (item.typeId === BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID || item.typeId === BUTCHER_CONFIG.CLEAVER_ITEM_ID)) {
+                        if (item && item.typeId === BUTCHER_CONFIG.AXE_ITEM_ID) {
                             unequipAxe(villager);
                         }
                     } catch {}
@@ -479,7 +479,6 @@ export class ButcherManager {
                     }
 
                     // Butcher happiness feedback
-                    playSoundSafe(villager.dimension, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
                     spawnParticleSafe(villager.dimension, "minecraft:villager_happy", {
                         x: villager.location.x,
                         y: villager.location.y + 1.8,

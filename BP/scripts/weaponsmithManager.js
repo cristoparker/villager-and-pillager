@@ -181,22 +181,27 @@ export class WeaponsmithManager {
     updateWeaponsmith(record, isNight) {
         const { villager } = record;
 
-        // Threat Check: Check for monsters threatening the village
-        if (record.state !== WeaponsmithState.SLEEPING && record.state !== WeaponsmithState.COMBAT && record.state !== WeaponsmithState.CALL_TO_ARMS) {
-            const monster = findNearbyMonsters(villager.dimension, villager.location, WEAPONSMITH_CONFIG.MONSTER_SEARCH_RADIUS);
-            if (monster) {
-                record.targetMonster = monster;
-                if (!record.hasCalledHorn) {
-                    record.hasCalledHorn = true;
-                    record.state = WeaponsmithState.CALL_TO_ARMS;
-                    record.timer = 25;
-                    equipHorn(villager);
-                } else {
-                    record.state = WeaponsmithState.COMBAT;
-                    record.timer = 15;
-                    equipSword(villager);
+        // Threat Check: Check for monsters threatening the village (throttled to every 10 ticks)
+        if (!record.threatScanTimer || record.threatScanTimer <= 0) {
+            record.threatScanTimer = 10;
+            if (record.state !== WeaponsmithState.SLEEPING && record.state !== WeaponsmithState.COMBAT && record.state !== WeaponsmithState.CALL_TO_ARMS) {
+                const monster = findNearbyMonsters(villager.dimension, villager.location, WEAPONSMITH_CONFIG.MONSTER_SEARCH_RADIUS);
+                if (monster) {
+                    record.targetMonster = monster;
+                    if (!record.hasCalledHorn) {
+                        record.hasCalledHorn = true;
+                        record.state = WeaponsmithState.CALL_TO_ARMS;
+                        record.timer = 25;
+                        equipHorn(villager);
+                    } else {
+                        record.state = WeaponsmithState.COMBAT;
+                        record.timer = 15;
+                        equipSword(villager);
+                    }
                 }
             }
+        } else {
+            record.threatScanTimer--;
         }
 
         switch (record.state) {
@@ -246,8 +251,8 @@ export class WeaponsmithManager {
                 const mLoc = monster.location;
                 const dist = distance(villager.location, mLoc);
 
-                // Determine weapon stance: use Axe against illagers/pillagers/vindictors, Sword against zombies/spiders
-                const isArmoredOrIllager = monster.typeId.includes("pillager") || monster.typeId.includes("vindicator") || monster.typeId.includes("iron_golem") || monster.typeId.includes("ravager");
+                // Determine weapon stance: use Axe against illagers/pillagers/vindicators, Sword against zombies/spiders (never target iron golems!)
+                const isArmoredOrIllager = monster.typeId.includes("pillager") || monster.typeId.includes("vindicator") || monster.typeId.includes("ravager");
                 if (isArmoredOrIllager) {
                     equipAxe(villager);
                 } else {

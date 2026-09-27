@@ -22,7 +22,7 @@ export const VILLAGER_PROFESSIONS = [
         event: "minecraft:become_sheperd",
         customEvent: "rpc:become_shepherd",
         tags: ["shepherd", "rpc:shepherd"],
-        defaultItem: "rpc:shears"
+        defaultItem: "minecraft:shears"
     },
     {
         id: "butcher",

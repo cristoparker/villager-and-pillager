@@ -1,6 +1,6 @@
 /**
  * Fisherman Villager Addon - Butcher Behavior Module (Namespace: rpc)
- * Handles equipping butcher axe/cleaver, hunting pigs & cows, collecting fresh meat,
+ * Handles equipping butcher iron axe, hunting pigs & cows, collecting fresh meat,
  * locating village Smokers, and placing coal & raw meat into smoker slots for cooking.
  */
 
@@ -9,7 +9,7 @@ import { BUTCHER_CONFIG } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
 
 /**
- * Equips cleaver or iron axe in the butcher's main hand.
+ * Equips iron axe in the butcher's main hand.
  * @param {Entity} villager 
  */
 export function equipAxe(villager) {
@@ -19,26 +19,19 @@ export function equipAxe(villager) {
         const equippable = villager.getComponent("minecraft:equippable");
         if (equippable) {
             const current = equippable.getEquipment(EquipmentSlot.Mainhand);
-            if (current && (current.typeId === BUTCHER_CONFIG.CLEAVER_ITEM_ID || current.typeId === BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID)) {
+            if (current && current.typeId === BUTCHER_CONFIG.AXE_ITEM_ID) {
                 return; // Already equipped, prevent pathfinding hitch
             }
 
             try {
-                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(BUTCHER_CONFIG.CLEAVER_ITEM_ID, 1));
+                equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(BUTCHER_CONFIG.AXE_ITEM_ID, 1));
                 return;
-            } catch {
-                try {
-                    equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID, 1));
-                    return;
-                } catch {}
-            }
+            } catch {}
         }
     } catch {}
 
     try {
-        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${BUTCHER_CONFIG.CLEAVER_ITEM_ID}`).catch(() => {
-            villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${BUTCHER_CONFIG.VANILLA_AXE_ITEM_ID}`).catch(() => {});
-        });
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${BUTCHER_CONFIG.AXE_ITEM_ID}`).catch(() => {});
     } catch {}
 }
 
@@ -234,7 +227,6 @@ export function performSlaughter(villager, animal, onLootCollected = null) {
         y: villager.location.y + 1.8,
         z: villager.location.z
     });
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
 
     // 8. Immediately scan and collect dropped meat
     const immediateLoot = collectDroppedMeat(villager, aLoc, 5.0);

@@ -9,7 +9,7 @@
  */
 
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
-import { EXPANSION_CONFIG, HAY_CONFIG, HOUSE_BUILD_CONFIG, getRandomCooldownTicks } from "./config.js";
+import { EXPANSION_CONFIG, HAY_CONFIG, getRandomCooldownTicks } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace, isReplaceableSpace, setEntityLook, smoothMoveTowards, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
 import { getVillagerProfession } from "./professionHelper.js";
 
@@ -24,15 +24,20 @@ export function isBabyVillager(villager) {
         if (villager.getComponent("minecraft:is_baby") !== undefined) return true;
     } catch {}
     try {
-        if (villager.hasTag("rpc:baby_villager") || villager.hasTag("baby")) return true;
-    } catch {}
-    try {
         const typeFam = villager.getComponent("minecraft:type_family");
         if (typeFam && typeFam.hasTypeFamily("baby")) return true;
     } catch {}
     try {
         if (villager.matches && villager.matches({ families: ["baby"] })) return true;
     } catch {}
+
+    // Grown-up: clean up any stale baby tags so the adult can participate in village tasks & trade
+    if (villager.hasTag("rpc:baby_villager")) {
+        try { villager.removeTag("rpc:baby_villager"); } catch {}
+    }
+    if (villager.hasTag("baby")) {
+        try { villager.removeTag("baby"); } catch {}
+    }
     return false;
 }
 
@@ -78,7 +83,7 @@ function isAreaBedCooldown(dimension, location) {
     return Date.now() < expires;
 }
 
-function setAreaBedCooldown(dimension, location, durationMs = 300000) {
+function setAreaBedCooldown(dimension, location, durationMs = 1200000) {
     if (!dimension || !location) return;
     const key = `${dimension.id}:${Math.floor(location.x / 48)},${Math.floor(location.z / 48)}`;
     recentBedAreaPlacements.set(key, Date.now() + durationMs);
@@ -86,14 +91,14 @@ function setAreaBedCooldown(dimension, location, durationMs = 300000) {
 
 function isAreaChestCooldown(dimension, location) {
     if (!dimension || !location) return false;
-    const key = `${dimension.id}:${Math.floor(location.x / 20)},${Math.floor(location.z / 20)}`;
+    const key = `${dimension.id}:${Math.floor(location.x / 48)},${Math.floor(location.z / 48)}`;
     const expires = recentChestAreaPlacements.get(key) || 0;
     return Date.now() < expires;
 }
 
-function setAreaChestCooldown(dimension, location, durationMs = 300000) {
+function setAreaChestCooldown(dimension, location, durationMs = 1200000) {
     if (!dimension || !location) return;
-    const key = `${dimension.id}:${Math.floor(location.x / 20)},${Math.floor(location.z / 20)}`;
+    const key = `${dimension.id}:${Math.floor(location.x / 48)},${Math.floor(location.z / 48)}`;
     recentChestAreaPlacements.set(key, Date.now() + durationMs);
 }
 
@@ -123,27 +128,6 @@ function setAreaHayCooldown(dimension, location, durationMs = 180000) {
     recentHayAreaPlacements.set(key, Date.now() + durationMs);
 }
 
-const recentHouseAreaBuilds = new Map();
-const villageBuiltHouseCount = new Map();
-
-function isAreaHouseCooldown(dimension, location) {
-    if (!dimension || !location) return false;
-    const key = `${dimension.id}:${Math.floor(location.x / 48)},${Math.floor(location.z / 48)}`;
-    const expires = recentHouseAreaBuilds.get(key) || 0;
-    if (Date.now() < expires) return true;
-    const count = villageBuiltHouseCount.get(key) || 0;
-    if (count >= HOUSE_BUILD_CONFIG.MAX_HOUSES_PER_AREA) return true;
-    return false;
-}
-
-function setAreaHouseCooldown(dimension, location, durationMs = HOUSE_BUILD_CONFIG.AREA_COOLDOWN_MS) {
-    if (!dimension || !location) return;
-    const key = `${dimension.id}:${Math.floor(location.x / 48)},${Math.floor(location.z / 48)}`;
-    recentHouseAreaBuilds.set(key, Date.now() + durationMs);
-    const count = villageBuiltHouseCount.get(key) || 0;
-    villageBuiltHouseCount.set(key, count + 1);
-}
-
 export const ExpansionState = {
     IDLE: "IDLE",
     COLLECTING_ITEM: "COLLECTING_ITEM",
@@ -157,8 +141,6 @@ export const ExpansionState = {
     PLACING_WORKBENCH: "PLACING_WORKBENCH",
     APPROACHING_HAY_SPOT: "APPROACHING_HAY_SPOT",
     PLACING_HAY: "PLACING_HAY",
-    APPROACHING_HOUSE_SITE: "APPROACHING_HOUSE_SITE",
-    BUILDING_HOUSE: "BUILDING_HOUSE",
     COOLDOWN: "COOLDOWN"
 };
 
@@ -203,7 +185,6 @@ export class VillageExpansionManager {
         if (!villager || !villager.isValid() || this.records.has(villager.id)) return;
 
         const isBaby = isBabyVillager(villager);
-        const isBuilder = !isBaby && (Math.random() < HOUSE_BUILD_CONFIG.BUILDER_CHANCE);
 
         this.records.set(villager.id, {
             state: ExpansionState.IDLE,
@@ -213,10 +194,6 @@ export class VillageExpansionManager {
             targetChest: null,
             placementSpot: null,
             targetWorkbenchType: null,
-            housePlotOrigin: null,
-            houseStage: 0,
-            isBuilderCandidate: isBuilder,
-            houseCooldown: isBuilder ? getRandomCooldownTicks(HOUSE_BUILD_CONFIG.BUILD_COOLDOWN_MIN_TICKS, HOUSE_BUILD_CONFIG.BUILD_COOLDOWN_MAX_TICKS) : 999999,
             // Baby villagers won't place beds or workbenches!
             // Adults initialize with 3 to 5 minutes (3600-6000 ticks) initial cooldown to eliminate placement spam on spawn
             bedCooldown: isBaby ? 999999 : getRandomCooldownTicks(EXPANSION_CONFIG.BED_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.BED_COOLDOWN_MAX_TICKS),
@@ -224,8 +201,8 @@ export class VillageExpansionManager {
             hayCooldown: isBaby ? 999999 : getRandomCooldownTicks(HAY_CONFIG.COOLDOWN_MIN_TICKS, HAY_CONFIG.COOLDOWN_MAX_TICKS),
             checkedNightBed: false,
             depositCooldown: 0,
-            chestCooldown: 40,
-            breedCooldown: 200,
+            chestCooldown: isBaby ? 999999 : getRandomCooldownTicks(EXPANSION_CONFIG.CHEST_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.CHEST_COOLDOWN_MAX_TICKS),
+            breedCooldown: 400,
             step: 0,
             stuckTicks: 0,
             lastLoc: null,
@@ -317,13 +294,7 @@ export class VillageExpansionManager {
             }
 
             if (isNight) {
-                if (!record.checkedNightBed) {
-                    record.checkedNightBed = true;
-                    // Trigger bed check at night time for adult villagers
-                    if (!isBabyVillager(villager)) {
-                        record.bedCooldown = 0;
-                    }
-                }
+                record.checkedNightBed = true;
             } else {
                 record.checkedNightBed = false;
             }
@@ -331,7 +302,6 @@ export class VillageExpansionManager {
             if (record.bedCooldown > 0) record.bedCooldown--;
             if (record.workbenchCooldown > 0) record.workbenchCooldown--;
             if (record.hayCooldown > 0) record.hayCooldown--;
-            if (record.houseCooldown > 0) record.houseCooldown--;
             if (record.depositCooldown > 0) record.depositCooldown--;
             if (record.chestCooldown > 0) record.chestCooldown--;
             if (record.breedCooldown > 0) record.breedCooldown--;
@@ -350,7 +320,7 @@ export class VillageExpansionManager {
         const dim = villager.dimension;
         const vLoc = villager.location;
 
-        // At night, pause non-bed expansion tasks (items, chests, workbenches, hay bales, house construction)
+        // At night, pause non-bed expansion tasks (items, chests, workbenches, hay bales)
         if (isNight) {
             if (record.state === ExpansionState.COLLECTING_ITEM ||
                 record.state === ExpansionState.APPROACHING_CHEST ||
@@ -360,16 +330,12 @@ export class VillageExpansionManager {
                 record.state === ExpansionState.APPROACHING_WORKBENCH_SPOT ||
                 record.state === ExpansionState.PLACING_WORKBENCH ||
                 record.state === ExpansionState.APPROACHING_HAY_SPOT ||
-                record.state === ExpansionState.PLACING_HAY ||
-                record.state === ExpansionState.APPROACHING_HOUSE_SITE ||
-                record.state === ExpansionState.BUILDING_HOUSE) {
+                record.state === ExpansionState.PLACING_HAY) {
                 record.state = ExpansionState.IDLE;
                 record.targetItemEntity = null;
                 record.targetChest = null;
                 record.placementSpot = null;
                 record.targetWorkbenchType = null;
-                record.housePlotOrigin = null;
-                record.houseStage = 0;
             }
         }
 
@@ -459,7 +425,7 @@ export class VillageExpansionManager {
                                     break;
                                 }
                             } else {
-                                if (record.chestCooldown <= 0 && !isAreaChestCooldown(dim, vLoc)) {
+                                if (record.chestCooldown <= 0 && !isAreaChestCooldown(dim, vLoc) && Math.random() < 0.25) {
                                     const chestSpot = this.findNearbyChestPlacementSpot(dim, vLoc, 4);
                                     if (chestSpot && !isTargetUnreachable(chestSpot)) {
                                         record.placementSpot = chestSpot;
@@ -476,15 +442,19 @@ export class VillageExpansionManager {
                                         record.lastLoc = null;
                                         foundAction = true;
                                         break;
+                                    } else {
+                                        record.chestCooldown = getRandomCooldownTicks(6000, 12000);
+                                    }
+                                } else {
+                                    if (record.chestCooldown <= 0) {
+                                        record.chestCooldown = getRandomCooldownTicks(6000, 12000);
                                     }
                                 }
                             }
                         }
 
-                        // Step 3: Village Bed Expansion (Low frequency 3-5 mins AND night time check)
-                        if (currentStep === 3 && !isBabyVillager(villager) && (record.bedCooldown <= 0 || (isNight && !record.checkedNightBed))) {
-                            if (isNight) record.checkedNightBed = true;
-
+                        // Step 3: Village Bed Expansion (Rare check only when cooldown expires)
+                        if (currentStep === 3 && !isBabyVillager(villager) && record.bedCooldown <= 0 && Math.random() < 0.25) {
                             const localBeds = this.countNearbyBeds(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
                             const localVillagers = this.countNearbyVillagers(dim, vLoc, EXPANSION_CONFIG.BED_SEARCH_RADIUS);
 
@@ -511,10 +481,10 @@ export class VillageExpansionManager {
                                         break;
                                     }
                                 } else {
-                                    record.bedCooldown = getRandomCooldownTicks(1200, 2400);
+                                    record.bedCooldown = getRandomCooldownTicks(6000, 12000);
                                 }
                             } else {
-                                record.bedCooldown = getRandomCooldownTicks(1200, 2400);
+                                record.bedCooldown = getRandomCooldownTicks(6000, 12000);
                             }
                         }
 
@@ -563,28 +533,10 @@ export class VillageExpansionManager {
                                 record.hayCooldown = getRandomCooldownTicks(1200, 2400);
                             }
                         }
-
-                        // Step 6: Rare Village Home Construction
-                        if (currentStep === 6 && !isNight && !isBabyVillager(villager) && record.isBuilderCandidate && record.houseCooldown <= 0 && !isAreaHouseCooldown(dim, vLoc)) {
-                            const plotOrigin = this.findFreeHousePlot(dim, vLoc, HOUSE_BUILD_CONFIG.SEARCH_RADIUS);
-                            if (plotOrigin && !isTargetUnreachable(plotOrigin)) {
-                                record.housePlotOrigin = plotOrigin;
-                                record.houseStage = 0;
-                                record.state = ExpansionState.APPROACHING_HOUSE_SITE;
-                                record.timer = 120;
-                                record.step = currentStep;
-                                record.stuckTicks = 0;
-                                record.lastLoc = null;
-                                foundAction = true;
-                                break;
-                            } else {
-                                record.houseCooldown = getRandomCooldownTicks(3600, 7200);
-                            }
-                        }
                     }
 
                     if (!foundAction) {
-                        record.step = ((record.step || 0) + 1) % 7;
+                        record.step = ((record.step || 0) + 1) % 6;
                         record.timer = 20;
                     }
                 }
@@ -962,92 +914,6 @@ export class VillageExpansionManager {
                 break;
             }
 
-            case ExpansionState.APPROACHING_HOUSE_SITE: {
-                record.timer--;
-                if (isNight || isBabyVillager(villager) || !record.housePlotOrigin || record.timer <= 0) {
-                    if (record.housePlotOrigin) markTargetUnreachable(record.housePlotOrigin, 400);
-                    record.state = ExpansionState.IDLE;
-                    record.housePlotOrigin = null;
-                    record.houseStage = 0;
-                    record.houseCooldown = isBabyVillager(villager) ? 999999 : getRandomCooldownTicks(2400, 4800);
-                    record.step = ((record.step || 0) + 1) % 7;
-                    record.timer = 1;
-                    break;
-                }
-
-                const frontDoorSpot = {
-                    x: record.housePlotOrigin.x + 2.5,
-                    y: record.housePlotOrigin.y,
-                    z: record.housePlotOrigin.z - 0.5
-                };
-                const d = distance(vLoc, frontDoorSpot);
-                if (d <= 3.2) {
-                    record.state = ExpansionState.BUILDING_HOUSE;
-                    record.houseStage = 0;
-                    record.timer = HOUSE_BUILD_CONFIG.STAGE_DURATION_TICKS;
-                    break;
-                }
-
-                const curLoc = villager.location;
-                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
-                    record.stuckTicks = (record.stuckTicks || 0) + 1;
-                } else {
-                    record.stuckTicks = 0;
-                }
-                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
-
-                if (record.stuckTicks > 35) {
-                    markTargetUnreachable(record.housePlotOrigin, 400);
-                    record.housePlotOrigin = null;
-                    record.houseStage = 0;
-                    record.step = ((record.step || 0) + 1) % 7;
-                    record.state = ExpansionState.IDLE;
-                    record.timer = 1;
-                    break;
-                }
-
-                try {
-                    const equippable = villager.getComponent("minecraft:equippable");
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.FOUNDATION_BLOCK, 1));
-                } catch {}
-
-                smoothMoveTowards(villager, frontDoorSpot, { stopDistance: 2.8 });
-                break;
-            }
-
-            case ExpansionState.BUILDING_HOUSE: {
-                if (isNight || isBabyVillager(villager) || !record.housePlotOrigin) {
-                    record.state = ExpansionState.IDLE;
-                    record.housePlotOrigin = null;
-                    record.houseStage = 0;
-                    record.houseCooldown = getRandomCooldownTicks(HOUSE_BUILD_CONFIG.BUILD_COOLDOWN_MIN_TICKS, HOUSE_BUILD_CONFIG.BUILD_COOLDOWN_MAX_TICKS);
-                    break;
-                }
-
-                record.timer--;
-                if (record.timer <= 0) {
-                    const finished = this.executeHouseBuildStage(villager, record.housePlotOrigin, record.houseStage);
-                    record.houseStage++;
-
-                    if (finished || record.houseStage > 6) {
-                        // Entire house complete! Mark cooldown and celebrate
-                        setAreaHouseCooldown(dim, record.housePlotOrigin);
-                        try {
-                            const equippable = villager.getComponent("minecraft:equippable");
-                            equippable?.setEquipment(EquipmentSlot.Mainhand, undefined);
-                        } catch {}
-                        record.housePlotOrigin = null;
-                        record.houseStage = 0;
-                        record.houseCooldown = getRandomCooldownTicks(HOUSE_BUILD_CONFIG.BUILD_COOLDOWN_MIN_TICKS, HOUSE_BUILD_CONFIG.BUILD_COOLDOWN_MAX_TICKS);
-                        record.state = ExpansionState.COOLDOWN;
-                        record.timer = 60;
-                    } else {
-                        // Schedule next stage
-                        record.timer = HOUSE_BUILD_CONFIG.STAGE_DURATION_TICKS;
-                    }
-                }
-                break;
-            }
 
             case ExpansionState.COOLDOWN: {
                 record.timer--;
@@ -1157,32 +1023,50 @@ export class VillageExpansionManager {
      */
     findNearbyChest(dimension, location, radius = EXPANSION_CONFIG.CHEST_SEARCH_RADIUS) {
         if (!dimension || !location) return null;
-        const ox = Math.floor(location.x);
-        const oy = Math.floor(location.y);
-        const oz = Math.floor(location.z);
-        const r = Math.min(radius, 20);
+        const dimId = dimension.id;
 
-        let closest = null;
-        let closestDist = Infinity;
-
-        for (let dx = -r; dx <= r; dx++) {
-            for (let dz = -r; dz <= r; dz++) {
-                for (let dy = -2; dy <= 3; dy++) {
-                    const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+        // 1. Fast Cache Verification (O(1))
+        for (const [key, poi] of villagePoiCache.entries()) {
+            if (poi.dimId === dimId && EXPANSION_CONFIG.CHEST_BLOCK_IDS.includes(poi.typeId)) {
+                const dist = distance(location, poi.pos);
+                if (dist <= radius && !isTargetUnreachable(poi.pos)) {
                     try {
-                        const block = dimension.getBlock(pos);
-                        if (block && EXPANSION_CONFIG.CHEST_BLOCK_IDS.includes(block.typeId) && !isTargetUnreachable(pos)) {
-                            const d = distance(location, pos);
-                            if (d < closestDist) {
-                                closestDist = d;
-                                closest = { block, pos };
-                            }
+                        const block = dimension.getBlock(poi.pos);
+                        if (block && EXPANSION_CONFIG.CHEST_BLOCK_IDS.includes(block.typeId)) {
+                            return { block, pos: poi.pos };
+                        } else {
+                            villagePoiCache.delete(key);
                         }
                     } catch {}
                 }
             }
         }
-        return closest;
+
+        // 2. High-performance concentric search: search outward and STOP at first chest found!
+        const ox = Math.floor(location.x);
+        const oy = Math.floor(location.y);
+        const oz = Math.floor(location.z);
+        const maxR = Math.min(radius, 14);
+
+        for (let r = 0; r <= maxR; r += 2) {
+            for (let dx = -r; dx <= r; dx += 2) {
+                for (let dz = -r; dz <= r; dz += 2) {
+                    if (r > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                    for (let dy = -1; dy <= 2; dy++) {
+                        const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                        if (isTargetUnreachable(pos)) continue;
+                        try {
+                            const block = dimension.getBlock(pos);
+                            if (block && EXPANSION_CONFIG.CHEST_BLOCK_IDS.includes(block.typeId)) {
+                                addPoiToCache(dimId, pos, block.typeId);
+                                return { block, pos };
+                            }
+                        } catch {}
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -1230,7 +1114,6 @@ export class VillageExpansionManager {
         } catch {}
 
         playSoundSafe(dim, "random.chestclosed", pos, { volume: 0.8, pitch: 1.0 });
-        playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
         spawnParticleSafe(dim, "minecraft:villager_happy", { x: pos.x + 0.5, y: pos.y + 1.2, z: pos.z + 0.5 });
 
         // Clear carried items
@@ -1311,9 +1194,10 @@ export class VillageExpansionManager {
 
         const placed = setBlockSafe(block, "minecraft:chest") || setBlockSafe(block, "minecraft:barrel");
         if (placed) {
-            setAreaChestCooldown(dim, spot, 300000); // 5-minute area cooldown for 20-block grid
+            addPoiToCache(dim.id, spot, "minecraft:chest");
+            setAreaChestCooldown(dim, spot, 1200000); // 20-minute area cooldown for 48-block sector
+            record.chestCooldown = getRandomCooldownTicks(EXPANSION_CONFIG.CHEST_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.CHEST_COOLDOWN_MAX_TICKS);
             playSoundSafe(dim, "dig.wood", spot, { volume: 0.9, pitch: 1.0 });
-            playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
             spawnParticleSafe(dim, "minecraft:villager_happy", { x: spot.x + 0.5, y: spot.y + 1.0, z: spot.z + 0.5 });
             this.performDepositItems(villager, block, record);
             return true;
@@ -1375,7 +1259,6 @@ export class VillageExpansionManager {
                 spawnParticleSafe(dim, "minecraft:heart_particle", { x: vLoc.x, y: vLoc.y + 1.2, z: vLoc.z });
                 spawnParticleSafe(dim, "minecraft:heart_particle", { x: pLoc.x, y: pLoc.y + 1.2, z: pLoc.z });
 
-                playSoundSafe(dim, "mob.villager.yes", vLoc, { volume: 0.9, pitch: 1.1 });
                 playSoundSafe(dim, "random.pop", { x: midX, y: midY, z: midZ }, { volume: 0.8, pitch: 1.2 });
 
                 // Spawn baby villager
@@ -1464,11 +1347,11 @@ export class VillageExpansionManager {
         const oy = Math.floor(location.y);
         const oz = Math.floor(location.z);
 
-        // 2. High-performance sparse discovery scan: radius 32 with step 4 (cuts queries by 95%)
-        const scanR = Math.min(radius, 32);
-        for (let dx = -scanR; dx <= scanR; dx += 4) {
-            for (let dz = -scanR; dz <= scanR; dz += 4) {
-                for (let dy = -2; dy <= 2; dy += 2) {
+        // 2. Accurate and light discovery scan: radius 16 with step 2
+        const scanR = Math.min(radius, 16);
+        for (let dx = -scanR; dx <= scanR; dx += 2) {
+            for (let dz = -scanR; dz <= scanR; dz += 2) {
+                for (let dy = -2; dy <= 2; dy++) {
                     const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
                     try {
                         const block = dimension.getBlock(pos);
@@ -1603,9 +1486,9 @@ export class VillageExpansionManager {
         if (placed) {
             addPoiToCache(dim.id, footPos, EXPANSION_CONFIG.BED_BLOCK_ID);
             if (spot.headPos) addPoiToCache(dim.id, spot.headPos, EXPANSION_CONFIG.BED_BLOCK_ID);
-            setAreaBedCooldown(dim, footPos, 300000);
+            setAreaBedCooldown(dim, footPos, 1200000); // 20-minute area cooldown
+            record.bedCooldown = getRandomCooldownTicks(EXPANSION_CONFIG.BED_COOLDOWN_MIN_TICKS, EXPANSION_CONFIG.BED_COOLDOWN_MAX_TICKS);
             playSoundSafe(dim, "dig.wood", footPos, { volume: 0.9, pitch: 1.0 });
-            playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.1 });
             spawnParticleSafe(dim, "minecraft:heart_particle", { x: footPos.x + 0.5, y: footPos.y + 1.2, z: footPos.z + 0.5 });
             spawnParticleSafe(dim, "minecraft:villager_happy", { x: footPos.x + 0.5, y: footPos.y + 1.0, z: footPos.z + 0.5 });
             return true;
@@ -1738,7 +1621,6 @@ export class VillageExpansionManager {
             addPoiToCache(dim.id, spot, workbenchTypeId);
             setAreaWorkbenchCooldown(dim, spot, 300000);
             playSoundSafe(dim, "dig.wood", spot, { volume: 0.9, pitch: 1.0 });
-            playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
             spawnParticleSafe(dim, "minecraft:villager_happy", { x: spot.x + 0.5, y: spot.y + 1.2, z: spot.z + 0.5 });
             return true;
         }
@@ -1955,363 +1837,11 @@ export class VillageExpansionManager {
         if (placed) {
             addPoiToCache(dim.id, spot, HAY_CONFIG.BLOCK_ID);
             playSoundSafe(dim, "dig.grass", spot, { volume: 0.9, pitch: 1.0 });
-            playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
             spawnParticleSafe(dim, "minecraft:villager_happy", { x: spot.x + 0.5, y: spot.y + 1.2, z: spot.z + 0.5 });
             return true;
         }
         return false;
     }
 
-    /**
-     * Checks whether a 5x5 area at base origin (x0, y0, z0) is completely free, flat, and suitable for house building.
-     * Uses hierarchical fast rejection to avoid block query floods.
-     * @param {Dimension} dimension 
-     * @param {number} x0 
-     * @param {number} y0 
-     * @param {number} z0 
-     * @returns {boolean}
-     */
-    isPlotSuitable(dimension, x0, y0, z0) {
-        if (!dimension) return false;
-        const dimId = dimension.id;
-
-        // 1. Fast Cache Clearance Check
-        const center = { x: x0 + 2, y: y0, z: z0 + 2 };
-        for (const [key, poi] of villagePoiCache.entries()) {
-            if (poi.dimId === dimId) {
-                if (distance(center, poi.pos) < HOUSE_BUILD_CONFIG.MIN_DISTANCE_FROM_EXISTING_POI) {
-                    return false;
-                }
-            }
-        }
-
-        const gy = y0 - 1;
-
-        // 2. Fast-Rejection Tree Phase A: Check 4 ground corners + center (5 queries)
-        const groundKeyPoints = [
-            { x: x0, z: z0 },
-            { x: x0 + 4, z: z0 },
-            { x: x0, z: z0 + 4 },
-            { x: x0 + 4, z: z0 + 4 },
-            { x: x0 + 2, z: z0 + 2 }
-        ];
-        for (const pt of groundKeyPoints) {
-            try {
-                const b = dimension.getBlock({ x: pt.x, y: gy, z: pt.z });
-                if (!b || !isSolidGround(b)) return false;
-            } catch {
-                return false;
-            }
-        }
-
-        // 3. Fast-Rejection Tree Phase B: Check 4 ceiling corners + center (5 queries)
-        for (const pt of groundKeyPoints) {
-            try {
-                const b = dimension.getBlock({ x: pt.x, y: y0 + 4, z: pt.z });
-                if (!b || (!b.isAir && !isPassableBlock(b))) return false;
-            } catch {
-                return false;
-            }
-        }
-
-        // 4. Front entrance clearance at (x0 + 2, y0, z0 - 1)
-        try {
-            const bDoorGround = dimension.getBlock({ x: x0 + 2, y: gy, z: z0 - 1 });
-            const bDoorWalk1 = dimension.getBlock({ x: x0 + 2, y: y0, z: z0 - 1 });
-            const bDoorWalk2 = dimension.getBlock({ x: x0 + 2, y: y0 + 1, z: z0 - 1 });
-            if (!bDoorGround || !isSolidGround(bDoorGround)) return false;
-            if (!bDoorWalk1 || (!bDoorWalk1.isAir && !isPassableBlock(bDoorWalk1))) return false;
-            if (!bDoorWalk2 || (!bDoorWalk2.isAir && !isPassableBlock(bDoorWalk2))) return false;
-        } catch {
-            return false;
-        }
-
-        // 5. Full Ground Check across 5x5 footprint
-        for (let dx = 0; dx < 5; dx++) {
-            for (let dz = 0; dz < 5; dz++) {
-                try {
-                    const bGround = dimension.getBlock({ x: x0 + dx, y: gy, z: z0 + dz });
-                    if (!bGround || !isSolidGround(bGround)) return false;
-                } catch {
-                    return false;
-                }
-            }
-        }
-
-        // 6. Full Vertical clearance check from Y = y0 to y0 + 4 across 5x5 footprint
-        for (let dx = 0; dx < 5; dx++) {
-            for (let dz = 0; dz < 5; dz++) {
-                for (let dy = 0; dy <= 4; dy++) {
-                    try {
-                        const b = dimension.getBlock({ x: x0 + dx, y: y0 + dy, z: z0 + dz });
-                        if (!b || (!b.isAir && !isPassableBlock(b))) return false;
-                    } catch {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Finds a free 5x5 outdoor plot in open space to construct a new village home.
-     * Samples radial candidate points instead of an exhaustive 1,400+ block grid.
-     * @param {Dimension} dimension 
-     * @param {Vector3} location 
-     * @param {number} radius 
-     * @returns {Vector3|null}
-     */
-    findFreeHousePlot(dimension, location, radius = HOUSE_BUILD_CONFIG.SEARCH_RADIUS) {
-        if (!dimension || !location) return null;
-        const ox = Math.floor(location.x);
-        const oy = Math.floor(location.y);
-        const oz = Math.floor(location.z);
-
-        const candidates = [];
-        // Test 8 radial compass directions at distances 12, 16, 20
-        const distances = [12, 16, 20];
-        const angles = [0, 0.785, 1.57, 2.356, 3.141, 3.927, 4.712, 5.498];
-        const shuffledAngles = [...angles].sort(() => Math.random() - 0.5);
-
-        for (const dist of distances) {
-            for (const angle of shuffledAngles) {
-                const dx = Math.round(Math.cos(angle) * dist);
-                const dz = Math.round(Math.sin(angle) * dist);
-
-                for (let dy = -1; dy <= 1; dy++) {
-                    const x0 = ox + dx;
-                    const y0 = oy + dy;
-                    const z0 = oz + dz;
-
-                    if (this.isPlotSuitable(dimension, x0, y0, z0) && !isTargetUnreachable({ x: x0, y: y0, z: z0 })) {
-                        candidates.push({ x: x0, y: y0, z: z0 });
-                        if (candidates.length >= 2) {
-                            return candidates[Math.floor(Math.random() * candidates.length)];
-                        }
-                    }
-                }
-            }
-        }
-
-        if (candidates.length === 0) return null;
-        return candidates[0];
-    }
-
-    /**
-     * Progressively executes a stage of home construction (0 through 6).
-     * @param {Entity} villager 
-     * @param {Vector3} origin 
-     * @param {number} stage 
-     * @returns {boolean} true when final stage finishes
-     */
-    executeHouseBuildStage(villager, origin, stage) {
-        if (!villager || !villager.isValid() || !origin) return true;
-        const dim = villager.dimension;
-        const { x: ox, y: oy, z: oz } = origin;
-        const equippable = villager.getComponent("minecraft:equippable");
-
-        try {
-            const centerPos = { x: ox + 2.5, y: oy + 1, z: oz + 2.5 };
-            setEntityLook(villager, centerPos);
-        } catch {}
-
-        switch (stage) {
-            case 0: {
-                // Stage 0: Site Clearing & Ground Preparation
-                try {
-                    villager.playAnimation("animation.villager.raise_arms");
-                } catch {}
-                for (let dx = 0; dx < 5; dx++) {
-                    for (let dz = 0; dz < 5; dz++) {
-                        for (let dy = 0; dy <= 4; dy++) {
-                            const b = dim.getBlock({ x: ox + dx, y: oy + dy, z: oz + dz });
-                            if (b && !b.isAir && isPassableBlock(b)) {
-                                setBlockSafe(b, "minecraft:air");
-                            }
-                        }
-                    }
-                }
-                playSoundSafe(dim, "dig.grass", { x: ox + 2, y: oy, z: oz + 2 }, { volume: 0.9, pitch: 1.0 });
-                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ox + 2.5, y: oy + 1.0, z: oz + 2.5 });
-                return false;
-            }
-
-            case 1: {
-                // Stage 1: Cobblestone Foundation & Oak Plank Flooring (Y = oy)
-                try {
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.FOUNDATION_BLOCK, 1));
-                    villager.playAnimation("animation.villager.raise_arms");
-                } catch {}
-                for (let dx = 0; dx < 5; dx++) {
-                    for (let dz = 0; dz < 5; dz++) {
-                        const b = dim.getBlock({ x: ox + dx, y: oy, z: oz + dz });
-                        if (!b) continue;
-                        const isRim = (dx === 0 || dx === 4 || dz === 0 || dz === 4);
-                        const isDoorSill = (dx === 2 && dz === 0);
-                        if (isDoorSill || !isRim) {
-                            setBlockSafe(b, HOUSE_BUILD_CONFIG.FLOOR_BLOCK);
-                        } else {
-                            setBlockSafe(b, HOUSE_BUILD_CONFIG.FOUNDATION_BLOCK);
-                        }
-                    }
-                }
-                playSoundSafe(dim, "dig.stone", { x: ox + 2, y: oy, z: oz + 2 }, { volume: 0.9, pitch: 1.0 });
-                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ox + 2.5, y: oy + 1.2, z: oz + 2.5 });
-                return false;
-            }
-
-            case 2: {
-                // Stage 2: Corner Oak Log Pillars & Cobblestone Lower Walls (Y = oy + 1)
-                try {
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.CORNER_BLOCK, 1));
-                    villager.playAnimation("animation.villager.raise_arms");
-                } catch {}
-                const y1 = oy + 1;
-                for (let dx = 0; dx < 5; dx++) {
-                    for (let dz = 0; dz < 5; dz++) {
-                        const isCorner = (dx === 0 || dx === 4) && (dz === 0 || dz === 4);
-                        const isDoorway = (dx === 2 && dz === 0);
-                        const isPerimeter = (dx === 0 || dx === 4 || dz === 0 || dz === 4);
-
-                        const b = dim.getBlock({ x: ox + dx, y: y1, z: oz + dz });
-                        if (!b) continue;
-
-                        if (isCorner) {
-                            setBlockSafe(b, HOUSE_BUILD_CONFIG.CORNER_BLOCK);
-                        } else if (isDoorway) {
-                            setBlockSafe(b, "minecraft:air");
-                        } else if (isPerimeter) {
-                            setBlockSafe(b, HOUSE_BUILD_CONFIG.WALL_LOWER_BLOCK);
-                        }
-                    }
-                }
-                playSoundSafe(dim, "dig.wood", { x: ox + 2, y: y1, z: oz + 2 }, { volume: 0.9, pitch: 1.0 });
-                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ox + 2.5, y: y1 + 1.0, z: oz + 2.5 });
-                return false;
-            }
-
-            case 3: {
-                // Stage 3: Upper Oak Plank Walls & Glass Windows (Y = oy + 2)
-                try {
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.WALL_UPPER_BLOCK, 1));
-                    villager.playAnimation("animation.villager.raise_arms");
-                } catch {}
-                const y2 = oy + 2;
-                for (let dx = 0; dx < 5; dx++) {
-                    for (let dz = 0; dz < 5; dz++) {
-                        const isCorner = (dx === 0 || dx === 4) && (dz === 0 || dz === 4);
-                        const isDoorway = (dx === 2 && dz === 0);
-                        const isWindow = (dx === 0 && dz === 2) || (dx === 4 && dz === 2) || (dx === 2 && dz === 4);
-                        const isPerimeter = (dx === 0 || dx === 4 || dz === 0 || dz === 4);
-
-                        const b = dim.getBlock({ x: ox + dx, y: y2, z: oz + dz });
-                        if (!b) continue;
-
-                        if (isCorner) {
-                            setBlockSafe(b, HOUSE_BUILD_CONFIG.CORNER_BLOCK);
-                        } else if (isDoorway) {
-                            setBlockSafe(b, "minecraft:air");
-                        } else if (isWindow) {
-                            setBlockSafe(b, HOUSE_BUILD_CONFIG.WINDOW_BLOCK);
-                        } else if (isPerimeter) {
-                            setBlockSafe(b, HOUSE_BUILD_CONFIG.WALL_UPPER_BLOCK);
-                        }
-                    }
-                }
-                playSoundSafe(dim, "dig.wood", { x: ox + 2, y: y2, z: oz + 2 }, { volume: 0.9, pitch: 1.0 });
-                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ox + 2.5, y: y2 + 1.0, z: oz + 2.5 });
-                return false;
-            }
-
-            case 4: {
-                // Stage 4: Lintel (Y = oy + 3) & Weather-Proof Oak Ceiling/Roof (Y = oy + 4)
-                try {
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.ROOF_BLOCK, 1));
-                    villager.playAnimation("animation.villager.raise_arms");
-                } catch {}
-                const y3 = oy + 3;
-                const y4 = oy + 4;
-                for (let dx = 0; dx < 5; dx++) {
-                    for (let dz = 0; dz < 5; dz++) {
-                        const isCorner = (dx === 0 || dx === 4) && (dz === 0 || dz === 4);
-                        const isPerimeter = (dx === 0 || dx === 4 || dz === 0 || dz === 4);
-
-                        const b3 = dim.getBlock({ x: ox + dx, y: y3, z: oz + dz });
-                        if (b3) {
-                            if (isCorner) setBlockSafe(b3, HOUSE_BUILD_CONFIG.CORNER_BLOCK);
-                            else if (isPerimeter) setBlockSafe(b3, HOUSE_BUILD_CONFIG.WALL_UPPER_BLOCK);
-                        }
-
-                        const b4 = dim.getBlock({ x: ox + dx, y: y4, z: oz + dz });
-                        if (b4) {
-                            setBlockSafe(b4, HOUSE_BUILD_CONFIG.ROOF_BLOCK);
-                        }
-                    }
-                }
-                playSoundSafe(dim, "dig.wood", { x: ox + 2, y: y4, z: oz + 2 }, { volume: 0.9, pitch: 1.0 });
-                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ox + 2.5, y: y4 + 1.0, z: oz + 2.5 });
-                return false;
-            }
-
-            case 5: {
-                // Stage 5: Front Oak Door & Interior Warm Wall Torch
-                try {
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.DOOR_BLOCK, 1));
-                    villager.playAnimation("animation.villager.raise_arms");
-                } catch {}
-                const doorBottom = { x: ox + 2, y: oy + 1, z: oz };
-                const doorTop = { x: ox + 2, y: oy + 2, z: oz };
-
-                try {
-                    dim.runCommandAsync(`setblock ${doorBottom.x} ${doorBottom.y} ${doorBottom.z} oak_door ["direction"=0,"upper_block_bit"=false] replace`);
-                    dim.runCommandAsync(`setblock ${doorTop.x} ${doorTop.y} ${doorTop.z} oak_door ["direction"=0,"upper_block_bit"=true] replace`);
-                } catch {}
-
-                try {
-                    dim.runCommandAsync(`setblock ${ox + 3} ${oy + 2} ${oz + 2} torch replace`);
-                } catch {}
-
-                playSoundSafe(dim, "random.door_open", doorBottom, { volume: 0.9, pitch: 1.0 });
-                spawnParticleSafe(dim, "minecraft:villager_happy", { x: doorBottom.x + 0.5, y: doorBottom.y + 1.0, z: doorBottom.z + 0.5 });
-                return false;
-            }
-
-            case 6: {
-                // Stage 6: Crafting Table & Bed Placement (The Complete Home!)
-                try {
-                    equippable?.setEquipment(EquipmentSlot.Mainhand, new ItemStack(HOUSE_BUILD_CONFIG.BED_BLOCK, 1));
-                    villager.playAnimation("animation.villager.raise_arms");
-                } catch {}
-
-                // Crafting Table in the corner
-                const benchPos = { x: ox + 3, y: oy + 1, z: oz + 3 };
-                const benchBlock = dim.getBlock(benchPos);
-                if (benchBlock) {
-                    setBlockSafe(benchBlock, HOUSE_BUILD_CONFIG.FURNITURE_BLOCK);
-                    addPoiToCache(dim.id, benchPos, HOUSE_BUILD_CONFIG.FURNITURE_BLOCK);
-                }
-
-                // Bed placed inside along back wall
-                const footPos = { x: ox + 1, y: oy + 1, z: oz + 3 };
-                const headPos = { x: ox + 1, y: oy + 1, z: oz + 2 };
-                const bedSpot = { footPos, headPos, direction: 2 }; // North facing
-
-                placeBedBlock(dim, bedSpot);
-                addPoiToCache(dim.id, footPos, EXPANSION_CONFIG.BED_BLOCK_ID);
-                addPoiToCache(dim.id, headPos, EXPANSION_CONFIG.BED_BLOCK_ID);
-
-                // Celebrations
-                playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 1.0, pitch: 1.1 });
-                playSoundSafe(dim, "random.levelup", villager.location, { volume: 0.9, pitch: 1.2 });
-                spawnParticleSafe(dim, "minecraft:heart_particle", { x: footPos.x + 0.5, y: footPos.y + 1.2, z: footPos.z + 0.5 });
-                spawnParticleSafe(dim, "minecraft:villager_happy", { x: ox + 2.5, y: oy + 2.0, z: oz + 2.5 });
-
-                return true;
-            }
-        }
-        return true;
-    }
 }
 

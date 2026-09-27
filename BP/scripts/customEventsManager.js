@@ -268,12 +268,7 @@ export class CustomEventsManager {
             // ==========================================
             // VILLAGE EXPANSION / BUILDER EVENTS
             // ==========================================
-            case "build_house":
-            case "house":
-            case "construct_house": {
-                this.executeBuildHouse(sourceEntity, dim, origin);
-                break;
-            }
+
 
             case "place_bed":
             case "bed": {
@@ -646,33 +641,7 @@ export class CustomEventsManager {
     // -------------------------------------------------------------
     // VILLAGE EXPANSION / BUILDER ACTIONS
     // -------------------------------------------------------------
-    executeBuildHouse(source, dim, origin) {
-        const expMgr = this.managers.villageExpansionManager;
-        if (!expMgr) {
-            this.notify(source, "§c[Builder] Expansion manager not initialized.");
-            return;
-        }
 
-        const villager = findNearestVillager(dim, origin, null, 24);
-        if (!villager) {
-            this.notify(source, "§c[Builder] No adult villager found nearby!");
-            return;
-        }
-
-        const plot = expMgr.findFreeHousePlot(dim, villager.location, 20);
-        if (plot) {
-            const record = expMgr.records.get(villager.id);
-            if (record) {
-                record.state = ExpansionState.APPROACHING_HOUSE_SITE;
-                record.housePlotOrigin = plot;
-                record.houseStage = 0;
-                record.timer = 15;
-            }
-            this.notify(source, `§6[Builder] Found free plot at (${plot.x}, ${plot.y}, ${plot.z})! Commencing house construction!`);
-        } else {
-            this.notify(source, "§e[Builder] No flat 5x5 clear ground plot found nearby. Clear a 5x5 area and try again!");
-        }
-    }
 
     executePlaceBed(source, dim, origin) {
         const expMgr = this.managers.villageExpansionManager;
@@ -909,7 +878,6 @@ export class CustomEventsManager {
             "  §d/scriptevent rpc:brew §f- Brew and drop fresh potions at brewing stand",
             "",
             "§6[BUILDER & EXPANSION]§r",
-            "  §e/scriptevent rpc:house §f- Build a 5x5 furnished house with bed & door",
             "  §e/scriptevent rpc:bed §f- Place a bed with 2 blocks headroom for breeding",
             "  §e/scriptevent rpc:workbench §f- Place a profession workstation",
             "  §e/scriptevent rpc:hay §f- Place a hay bale pile",

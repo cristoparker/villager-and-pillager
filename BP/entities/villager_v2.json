@@ -1,4 +1,4 @@
-﻿{
+{
   "format_version": "1.26.20",
   "minecraft:entity": {
     "description": {
@@ -13,9 +13,7 @@
             "slot": 0,
             "accepted_items": [
               "rpc:fishing_rod",
-              "rpc:shears",
               "minecraft:shears",
-              "rpc:cleaver",
               "minecraft:iron_axe",
               "minecraft:bow",
               "minecraft:crossbow",
@@ -202,7 +200,9 @@
         "suffocate_time": 0,
         "total_supply": 15
       },
-      "minecraft:can_climb": {},
+      "minecraft:step_height": {
+        "value": 1.06
+      },
       "minecraft:collision_box": {
         "height": 1.9,
         "width": 0.6
@@ -210,6 +210,23 @@
       "minecraft:conditional_bandwidth_optimization": {},
       "minecraft:damage_sensor": {
         "triggers": [
+          {
+            "deals_damage": "no",
+            "filters": {
+              "any_of": [
+                {
+                  "subject": "other",
+                  "test": "is_family",
+                  "value": "villager"
+                },
+                {
+                  "subject": "other",
+                  "test": "is_family",
+                  "value": "irongolem"
+                }
+              ]
+            }
+          },
           {
             "deals_damage": "no",
             "on_damage": {
@@ -1519,9 +1536,6 @@
         "minecraft:attack": {
           "damage": 5
         },
-        "minecraft:behavior.hurt_by_target": {
-          "priority": 1
-        },
         "minecraft:behavior.melee_attack": {
           "priority": 3,
           "speed_multiplier": 1.15,
@@ -2804,13 +2818,6 @@
         "queue_command": {
           "command": [
             "tag @s add rpc:event_plant"
-          ]
-        }
-      },
-      "rpc:house": {
-        "queue_command": {
-          "command": [
-            "tag @s add rpc:event_house"
           ]
         }
       },

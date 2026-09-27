@@ -128,28 +128,10 @@ export function smoothMoveTowards(entity, targetPos, options = {}) {
     const dot = (curVel.x * dirX + curVel.z * dirZ);
     if (dot < maxSpeed) {
         const needed = Math.max(0.012, Math.min(0.045, maxSpeed - dot));
-        let hopY = 0;
-        
-        // Auto-step: if moving slowly against an obstacle, apply slight hop
-        if (dot < 0.03 && dist2D > 0.8) {
-            try {
-                const blockAhead = entity.dimension.getBlock({
-                    x: Math.floor(eLoc.x + dirX * 0.7),
-                    y: Math.floor(eLoc.y),
-                    z: Math.floor(eLoc.z + dirZ * 0.7)
-                });
-                if (blockAhead && !blockAhead.isAir && !blockAhead.isLiquid) {
-                    hopY = 0.26; // Smooth 1-block step hop
-                }
-            } catch {}
-        } else if (dy > 0.6 && dist2D < 2.5) {
-            hopY = 0.26;
-        }
-
         try {
             entity.applyImpulse({
                 x: dirX * needed,
-                y: hopY,
+                y: 0,
                 z: dirZ * needed
             });
         } catch {}

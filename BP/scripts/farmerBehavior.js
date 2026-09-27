@@ -61,38 +61,36 @@ export function findNearbyRipeCrop(dimension, location, radius = FARMER_CONFIG.C
     const startX = Math.floor(location.x);
     const startY = Math.floor(location.y);
     const startZ = Math.floor(location.z);
-    const rad = Math.min(radius, 16);
+    const rad = Math.min(radius, 14);
 
-    let closest = null;
-    let closestDist = Infinity;
+    // Fast concentric search: stop immediately on first ripe crop found!
+    for (let r = 0; r <= rad; r += 2) {
+        for (let dx = -r; dx <= r; dx += 2) {
+            for (let dz = -r; dz <= r; dz += 2) {
+                if (r > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                for (let dy = -2; dy <= 2; dy++) {
+                    const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
+                    if (isTargetUnreachable(pos)) continue;
+                    try {
+                        const block = dimension.getBlock(pos);
+                        if (!block) continue;
 
-    for (let dx = -rad; dx <= rad; dx += 2) {
-        for (let dz = -rad; dz <= rad; dz += 2) {
-            for (let dy = -2; dy <= 2; dy++) {
-                const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
-                try {
-                    const block = dimension.getBlock(pos);
-                    if (!block) continue;
+                        const typeId = block.typeId;
+                        const cropDef = FARMER_CONFIG.CROPS.find(c => c.typeId === typeId);
+                        if (!cropDef) continue;
 
-                    const typeId = block.typeId;
-                    const cropDef = FARMER_CONFIG.CROPS.find(c => c.typeId === typeId);
-                    if (!cropDef) continue;
-
-                    const perm = block.permutation;
-                    const growth = perm.getState("growth");
-                    if (growth === cropDef.maxGrowth || growth === 7) {
-                        const d = distance(location, pos);
-                        if (d < closestDist) {
-                            closestDist = d;
-                            closest = { block, pos, cropDef };
+                        const perm = block.permutation;
+                        const growth = perm.getState("growth");
+                        if (growth === cropDef.maxGrowth || growth === 7) {
+                            return { block, pos, cropDef };
                         }
-                    }
-                } catch {}
+                    } catch {}
+                }
             }
         }
     }
 
-    return closest;
+    return null;
 }
 
 /**
@@ -108,34 +106,32 @@ export function findNearbyEmptyFarmland(dimension, location, radius = FARMER_CON
     const startX = Math.floor(location.x);
     const startY = Math.floor(location.y);
     const startZ = Math.floor(location.z);
-    const rad = Math.min(radius, 16);
+    const rad = Math.min(radius, 14);
 
-    let closest = null;
-    let closestDist = Infinity;
+    // Fast concentric search: stop immediately on first empty farmland found!
+    for (let r = 0; r <= rad; r += 2) {
+        for (let dx = -r; dx <= r; dx += 2) {
+            for (let dz = -r; dz <= r; dz += 2) {
+                if (r > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                for (let dy = -2; dy <= 2; dy++) {
+                    const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
+                    if (isTargetUnreachable(pos)) continue;
+                    try {
+                        const block = dimension.getBlock(pos);
+                        if (!block || block.typeId !== "minecraft:farmland") continue;
 
-    for (let dx = -rad; dx <= rad; dx += 2) {
-        for (let dz = -rad; dz <= rad; dz += 2) {
-            for (let dy = -2; dy <= 2; dy++) {
-                const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
-                try {
-                    const block = dimension.getBlock(pos);
-                    if (!block || block.typeId !== "minecraft:farmland") continue;
-
-                    const airPos = { x: pos.x, y: pos.y + 1, z: pos.z };
-                    const airBlock = dimension.getBlock(airPos);
-                    if (airBlock && airBlock.isAir) {
-                        const d = distance(location, airPos);
-                        if (d < closestDist) {
-                            closestDist = d;
-                            closest = { farmlandBlock: block, airBlock, pos: airPos };
+                        const airPos = { x: pos.x, y: pos.y + 1, z: pos.z };
+                        const airBlock = dimension.getBlock(airPos);
+                        if (airBlock && airBlock.isAir) {
+                            return { farmlandBlock: block, airBlock, pos: airPos };
                         }
-                    }
-                } catch {}
+                    } catch {}
+                }
             }
         }
     }
 
-    return closest;
+    return null;
 }
 
 /**
@@ -190,38 +186,36 @@ export function findNearbyUngrownCrop(dimension, location, radius = 14) {
     const startX = Math.floor(location.x);
     const startY = Math.floor(location.y);
     const startZ = Math.floor(location.z);
-    const rad = Math.min(radius, 16);
+    const rad = Math.min(radius, 14);
 
-    let closest = null;
-    let closestDist = Infinity;
+    // Fast concentric search: stop immediately on first ungrown crop found!
+    for (let r = 0; r <= rad; r += 2) {
+        for (let dx = -r; dx <= r; dx += 2) {
+            for (let dz = -r; dz <= r; dz += 2) {
+                if (r > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                for (let dy = -2; dy <= 2; dy++) {
+                    const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
+                    if (isTargetUnreachable(pos)) continue;
+                    try {
+                        const block = dimension.getBlock(pos);
+                        if (!block) continue;
 
-    for (let dx = -rad; dx <= rad; dx += 2) {
-        for (let dz = -rad; dz <= rad; dz += 2) {
-            for (let dy = -2; dy <= 2; dy++) {
-                const pos = { x: startX + dx, y: startY + dy, z: startZ + dz };
-                try {
-                    const block = dimension.getBlock(pos);
-                    if (!block) continue;
+                        const typeId = block.typeId;
+                        const cropDef = FARMER_CONFIG.CROPS.find(c => c.typeId === typeId);
+                        if (!cropDef) continue;
 
-                    const typeId = block.typeId;
-                    const cropDef = FARMER_CONFIG.CROPS.find(c => c.typeId === typeId);
-                    if (!cropDef) continue;
-
-                    const perm = block.permutation;
-                    const growth = perm.getState("growth");
-                    if (typeof growth === "number" && growth < cropDef.maxGrowth && growth < 7) {
-                        const d = distance(location, pos);
-                        if (d < closestDist) {
-                            closestDist = d;
-                            closest = { block, pos, cropDef, currentGrowth: growth };
+                        const perm = block.permutation;
+                        const growth = perm.getState("growth");
+                        if (typeof growth === "number" && growth < cropDef.maxGrowth && growth < 7) {
+                            return { block, pos, cropDef, currentGrowth: growth };
                         }
-                    }
-                } catch {}
+                    } catch {}
+                }
             }
         }
     }
 
-    return closest;
+    return null;
 }
 
 /**
@@ -664,27 +658,27 @@ export function findNearbyMonsters(dimension, location, radius = FARMER_CONFIG.M
     let closest = null;
     let closestDist = Infinity;
 
-    for (const hostTypeId of FLETCHER_CONFIG.HOSTILE_TYPES) {
-        try {
-            const entities = dimension.getEntities({
-                type: hostTypeId,
-                location: location,
-                maxDistance: radius
-            });
-            for (const entity of entities) {
-                if (entity && entity.isValid()) {
-                    const health = entity.getComponent("minecraft:health");
-                    if (health && health.currentValue <= 0) continue;
+    try {
+        const entities = dimension.getEntities({
+            families: ["monster"],
+            location: location,
+            maxDistance: radius
+        });
+        for (const entity of entities) {
+            if (entity && entity.isValid() && !isTargetUnreachable(entity)) {
+                const typeId = entity.typeId;
+                if (typeId.includes("villager") || typeId.includes("player") || typeId.includes("iron_golem")) continue;
+                const health = entity.getComponent("minecraft:health");
+                if (health && health.currentValue <= 0) continue;
 
-                    const d = distance(location, entity.location);
-                    if (d < closestDist) {
-                        closestDist = d;
-                        closest = entity;
-                    }
+                const d = distance(location, entity.location);
+                if (d < closestDist) {
+                    closestDist = d;
+                    closest = entity;
                 }
             }
-        } catch {}
-    }
+        }
+    } catch {}
 
     return closest;
 }
@@ -722,7 +716,7 @@ export function performAttackMonster(villager, monster) {
         monster.applyDamage(FARMER_CONFIG.ATTACK_DAMAGE, { damagingEntity: villager });
     } catch {
         try {
-            villager.runCommandAsync(`damage @e[type=!villager,type=!villager_v2,type=!player,c=1,r=3] ${FARMER_CONFIG.ATTACK_DAMAGE} entity_attack entity @s`).catch(() => {});
+            villager.runCommandAsync(`damage @e[family=monster,type=!villager,type=!villager_v2,type=!iron_golem,type=!player,c=1,r=3] ${FARMER_CONFIG.ATTACK_DAMAGE} entity_attack entity @s`).catch(() => {});
         } catch {}
     }
 
@@ -841,8 +835,6 @@ export function performFeedBabyAnimal(villager, babyInfo) {
         baby.triggerEvent("minecraft:ageable_grow_up");
     } catch {}
 
-    // Celebratory feedback
-    playSoundSafe(dim, "mob.villager.yes", vLoc, { volume: 0.9, pitch: 1.1 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: vLoc.x, y: vLoc.y + 1.8, z: vLoc.z });
 
     return true;
@@ -971,8 +963,6 @@ export function performBreedAnimals(villager, breedPairInfo) {
         console.warn(`[Farmer] Error spawning baby ${speciesDef.typeId}: ${e}`);
     }
 
-    // Farmer satisfaction feedback
-    playSoundSafe(dim, "mob.villager.yes", vLoc, { volume: 0.9, pitch: 1.05 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: vLoc.x, y: vLoc.y + 1.8, z: vLoc.z });
 
     return true;
@@ -1017,30 +1007,28 @@ export function findNearbyChest(dimension, location, radius = FARMER_CONFIG.CHES
     const ox = Math.floor(location.x);
     const oy = Math.floor(location.y);
     const oz = Math.floor(location.z);
-    const r = Math.min(radius, 20);
+    const maxR = Math.min(radius, 12);
     const chestIds = FARMER_CONFIG.CHEST_BLOCK_IDS;
 
-    let closest = null;
-    let closestDist = Infinity;
-
-    for (let dx = -r; dx <= r; dx++) {
-        for (let dz = -r; dz <= r; dz++) {
-            for (let dy = -2; dy <= 3; dy++) {
-                const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
-                try {
-                    const block = dimension.getBlock(pos);
-                    if (block && chestIds.includes(block.typeId)) {
-                        const d = distance(location, pos);
-                        if (d < closestDist) {
-                            closestDist = d;
-                            closest = { block, pos };
+    // Fast concentric search: stop immediately on first chest found!
+    for (let r = 0; r <= maxR; r += 2) {
+        for (let dx = -r; dx <= r; dx += 2) {
+            for (let dz = -r; dz <= r; dz += 2) {
+                if (r > 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                for (let dy = -1; dy <= 2; dy++) {
+                    const pos = { x: ox + dx, y: oy + dy, z: oz + dz };
+                    if (isTargetUnreachable(pos)) continue;
+                    try {
+                        const block = dimension.getBlock(pos);
+                        if (block && chestIds.includes(block.typeId)) {
+                            return { block, pos };
                         }
-                    }
-                } catch {}
+                    } catch {}
+                }
             }
         }
     }
-    return closest;
+    return null;
 }
 
 /**
@@ -1114,7 +1102,6 @@ export function performPlaceChest(villager, spotPos) {
     const placed = setBlockSafe(block, "minecraft:chest") || setBlockSafe(block, "minecraft:barrel");
     if (placed) {
         playSoundSafe(dim, "dig.wood", spotPos, { volume: 0.9, pitch: 1.0 });
-        playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
         spawnParticleSafe(dim, "minecraft:villager_happy", { x: spotPos.x + 0.5, y: spotPos.y + 1.0, z: spotPos.z + 0.5 });
 
         // Deposit starter harvested farm goods into the newly placed community chest
@@ -1164,7 +1151,6 @@ export function performDepositCropIntoChest(villager, chestBlock) {
     } catch {}
 
     playSoundSafe(dim, "random.chestclosed", pos, { volume: 0.8, pitch: 1.0 });
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: pos.x + 0.5, y: pos.y + 1.2, z: pos.z + 0.5 });
 
     return true;
@@ -1349,7 +1335,6 @@ export function performPlaceBed(villager, bedSpot) {
     const placed = placeBedBlock(dim, bedSpot);
     if (placed) {
         playSoundSafe(dim, "dig.wood", footPos, { volume: 0.9, pitch: 1.0 });
-        playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.1 });
         spawnParticleSafe(dim, "minecraft:heart_particle", { x: footPos.x + 0.5, y: footPos.y + 1.2, z: footPos.z + 0.5 });
         spawnParticleSafe(dim, "minecraft:villager_happy", { x: footPos.x + 0.5, y: footPos.y + 1.0, z: footPos.z + 0.5 });
         return true;
@@ -1463,7 +1448,6 @@ export function performShareFoodWithVillager(farmer, recipient) {
     } catch {}
 
     playSoundSafe(dim, "random.pop", rLoc, { volume: 0.9, pitch: 1.1 });
-    playSoundSafe(dim, "mob.villager.yes", fLoc, { volume: 0.9, pitch: 1.0 });
 
     // Display breeding love hearts!
     spawnParticleSafe(dim, "minecraft:heart_particle", { x: rLoc.x, y: rLoc.y + 1.2, z: rLoc.z });

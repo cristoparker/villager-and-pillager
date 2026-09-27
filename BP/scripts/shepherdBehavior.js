@@ -20,26 +20,19 @@ export function equipShears(villager) {
         const equippable = villager.getComponent("minecraft:equippable");
         if (equippable) {
             const current = equippable.getEquipment(EquipmentSlot.Mainhand);
-            if (current && (current.typeId === SHEPHERD_CONFIG.SHEARS_ITEM_ID || current.typeId === SHEPHERD_CONFIG.VANILLA_SHEARS_ITEM_ID)) {
+            if (current && current.typeId === SHEPHERD_CONFIG.SHEARS_ITEM_ID) {
                 return; // Already equipped!
             }
 
             try {
                 equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(SHEPHERD_CONFIG.SHEARS_ITEM_ID, 1));
                 return;
-            } catch {
-                try {
-                    equippable.setEquipment(EquipmentSlot.Mainhand, new ItemStack(SHEPHERD_CONFIG.VANILLA_SHEARS_ITEM_ID, 1));
-                    return;
-                } catch {}
-            }
+            } catch {}
         }
     } catch {}
 
     try {
-        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${SHEPHERD_CONFIG.SHEARS_ITEM_ID}`).catch(() => {
-            villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${SHEPHERD_CONFIG.VANILLA_SHEARS_ITEM_ID}`).catch(() => {});
-        });
+        villager.runCommandAsync(`replaceitem entity @s slot.weapon.mainhand 0 ${SHEPHERD_CONFIG.SHEARS_ITEM_ID}`).catch(() => {});
     } catch {}
 }
 
@@ -234,7 +227,6 @@ export function performShear(villager, sheep) {
         y: villager.location.y + 1.8,
         z: villager.location.z
     });
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
 
     return true;
 }
@@ -355,7 +347,6 @@ export function performDyeSheep(villager, sheep, dyeDef) {
         }, 1200);
     } catch {}
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     return true;
 }
 
@@ -427,7 +418,6 @@ export function performFeedWheat(villager, sheep) {
         }, 600);
     } catch {}
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     return true;
 }
 

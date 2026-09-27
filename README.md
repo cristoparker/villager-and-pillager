@@ -76,12 +76,12 @@ This update brings an entirely new layer of autonomous civilization-building to 
 ---
 
 ### 🥩 2. Smart Butcher Villager
-- **Held Items**: Iron Axe (`minecraft:iron_axe`) or Custom Cleaver (`rpc:cleaver`).
+- **Held Items**: Vanilla Iron Axe (`minecraft:iron_axe`).
 - **Livestock Hunting**:
   - Scans up to 24 blocks for adult pigs and cows (always preserves baby animals).
   - Uses native pursuit pathfinding and smooth forward momentum to approach targets.
 - **Slaughter & Meat Gathering**:
-  - Executes cleaving weapon swings with impact sounds, harvesting raw porkchop, beef, and leather.
+  - Executes axe swings with impact sounds, harvesting raw porkchop, beef, and leather.
   - Emits happy villager particles upon collecting meat.
 - **Smoker Workstation Cooking**:
   - Pathfinds to the nearest village **Smoker** block (`minecraft:smoker` or `minecraft:lit_smoker`).
@@ -91,7 +91,7 @@ This update brings an entirely new layer of autonomous civilization-building to 
 ---
 
 ### 🐑 3. Smart Shepherd Villager
-- **Held Items**: Shears (`rpc:shears` and `minecraft:shears`), Dyes, Wheat, Carpets.
+- **Held Items**: Vanilla Shears (`minecraft:shears`), Dyes, Wheat, Carpets.
 - **Starter Flock**:
   - Spawns accompanied by **2 leashed companion sheep** connected by leash ropes, following the shepherd naturally.
 - **Authentic Sheep Shearing**:
@@ -214,8 +214,6 @@ The addon includes an automated synchronizer module (`professionHelper.js`) that
 | `rpc:fishing_rod` | Custom 3D animated fishing rod item. |
 | `rpc:fishing_bobber` | Ballistic water-floating bobber entity with wake particles. |
 | `rpc:fishing_line_particle` | High-precision catenary particle line connecting rod tip to bobber. |
-| `rpc:shears` | Custom Shepherd shears model held upright in hand. |
-| `rpc:cleaver` | Heavy butcher cleaver weapon for livestock harvesting. |
 
 ---
 

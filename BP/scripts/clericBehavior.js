@@ -227,18 +227,19 @@ export function performWitcherRegen(villager) {
 export function isRaidOrMonsterThreatNearby(dimension, location, radius = CLERIC_CONFIG.RAID_SEARCH_RADIUS) {
     if (!dimension || !location) return false;
 
-    for (const hostTypeId of FLETCHER_CONFIG.HOSTILE_TYPES) {
-        // Exclude zombie villagers from triggering hostile raid/combat panic for Clerics
-        if (hostTypeId === "minecraft:zombie_villager" || hostTypeId === "minecraft:zombie_villager_v2") continue;
-        try {
-            const mobs = dimension.getEntities({
-                type: hostTypeId,
-                location: location,
-                maxDistance: radius
-            });
-            if (mobs.length > 0) return true;
-        } catch {}
-    }
+    try {
+        const mobs = dimension.getEntities({
+            families: ["monster"],
+            location: location,
+            maxDistance: radius
+        });
+        for (const mob of mobs) {
+            if (!mob || !mob.isValid()) continue;
+            const t = mob.typeId;
+            if (t.includes("zombie_villager") || t.includes("villager") || t.includes("iron_golem") || t.includes("player")) continue;
+            return true;
+        }
+    } catch {}
 
     return false;
 }
@@ -256,30 +257,28 @@ export function findNearbyPillagersAndMonsters(dimension, location, radius = CLE
     let closest = null;
     let closestDist = Infinity;
 
-    for (const mobType of FLETCHER_CONFIG.HOSTILE_TYPES) {
-        // Exclude zombie villagers so Clerics never attack them with harming or poison potions!
-        if (mobType === "minecraft:zombie_villager" || mobType === "minecraft:zombie_villager_v2") continue;
-        try {
-            const mobs = dimension.getEntities({
-                type: mobType,
-                location: location,
-                maxDistance: radius
-            });
+    try {
+        const mobs = dimension.getEntities({
+            families: ["monster"],
+            location: location,
+            maxDistance: radius
+        });
 
-            for (const mob of mobs) {
-                if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
+        for (const mob of mobs) {
+            if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
+            const typeId = mob.typeId;
+            if (typeId.includes("zombie_villager") || typeId.includes("villager") || typeId.includes("iron_golem") || typeId.includes("player")) continue;
 
-                const health = mob.getComponent("minecraft:health");
-                if (health && health.currentValue <= 0) continue;
+            const health = mob.getComponent("minecraft:health");
+            if (health && health.currentValue <= 0) continue;
 
-                const d = distance(location, mob.location);
-                if (d < closestDist) {
-                    closestDist = d;
-                    closest = mob;
-                }
+            const d = distance(location, mob.location);
+            if (d < closestDist) {
+                closestDist = d;
+                closest = mob;
             }
-        } catch {}
-    }
+        }
+    } catch {}
 
     return closest;
 }
@@ -334,7 +333,7 @@ export function performOffensiveSplashPotion(villager, target) {
         target.applyDamage(4, { damagingEntity: villager });
     } catch {
         try {
-            villager.runCommandAsync(`damage @e[type=!villager,type=!villager_v2,type=!player,c=1,r=4] 4 magic entity @s`).catch(() => {});
+            villager.runCommandAsync(`damage @e[family=monster,type=!villager,type=!villager_v2,type=!iron_golem,type=!player,c=1,r=4] 4 magic entity @s`).catch(() => {});
         } catch {}
     }
 
@@ -514,7 +513,6 @@ export function performCureZombieVillager(villager, zombieVillager) {
     }, 100);
 
     equipPotion(villager);
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.1 });
     return true;
 }
 
@@ -562,20 +560,20 @@ export function performHolySanctuary(villager) {
     } catch {}
 
     // Repel nearby monsters away from sanctuary
-    for (const hostType of FLETCHER_CONFIG.HOSTILE_TYPES) {
-        try {
-            const hostiles = dim.getEntities({ type: hostType, location: vLoc, maxDistance: radius });
-            for (const mob of hostiles) {
-                if (mob && mob.isValid()) {
-                    const dx = mob.location.x - vLoc.x;
-                    const dz = mob.location.z - vLoc.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    mob.applyImpulse({ x: (dx / len) * 0.55, y: 0.25, z: (dz / len) * 0.55 });
-                    mob.addEffect("slowness", 100, { amplifier: 1, showParticles: true });
-                }
+    try {
+        const hostiles = dim.getEntities({ families: ["monster"], location: vLoc, maxDistance: radius });
+        for (const mob of hostiles) {
+            if (mob && mob.isValid()) {
+                const t = mob.typeId;
+                if (t.includes("villager") || t.includes("iron_golem") || t.includes("player")) continue;
+                const dx = mob.location.x - vLoc.x;
+                const dz = mob.location.z - vLoc.z;
+                const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                mob.applyImpulse({ x: (dx / len) * 0.55, y: 0.25, z: (dz / len) * 0.55 });
+                mob.addEffect("slowness", 100, { amplifier: 1, showParticles: true });
             }
-        } catch {}
-    }
+        }
+    } catch {}
 
     return true;
 }
@@ -604,6 +602,5 @@ export function performBrewPotions(villager, brewingStandInfo) {
         });
     } catch {}
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
     return true;
 }

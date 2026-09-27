@@ -97,16 +97,21 @@ export function findNearbyLectern(dimension, location, radius = LIBRARIAN_CONFIG
 export function isMonsterThreatNearby(dimension, location, radius = 16) {
     if (!dimension || !location) return false;
 
-    for (const hostTypeId of FLETCHER_CONFIG.HOSTILE_TYPES) {
-        try {
-            const entities = dimension.getEntities({
-                type: hostTypeId,
-                location: location,
-                maxDistance: radius
-            });
-            if (entities.length > 0) return true;
-        } catch {}
-    }
+    try {
+        const entities = dimension.getEntities({
+            families: ["monster"],
+            location: location,
+            maxDistance: radius
+        });
+        for (const e of entities) {
+            if (e && e.isValid()) {
+                const t = e.typeId;
+                if (!t.includes("villager") && !t.includes("iron_golem") && !t.includes("player")) {
+                    return true;
+                }
+            }
+        }
+    } catch {}
 
     return false;
 }
@@ -422,7 +427,6 @@ export function performCraftBooks(villager, lecternPos) {
     } catch {}
 
     equipBook(villager);
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.0 });
     return true;
 }
 

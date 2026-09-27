@@ -245,8 +245,8 @@ export class FarmerManager {
         if (record.chestCooldown > 0) record.chestCooldown--;
         if (record.foodShareCooldown > 0) record.foodShareCooldown--;
 
-        // Threat Priority: Check for nearby monsters threatening the farm (unless sleeping)
-        if (record.state !== FarmerState.SLEEPING && record.state !== FarmerState.COMBAT) {
+        // Threat Priority: Check for nearby monsters threatening the farm (throttled every 10 ticks)
+        if (record.state !== FarmerState.SLEEPING && record.state !== FarmerState.COMBAT && ((record.timer || 0) % 10 === 0)) {
             const monster = findNearbyMonsters(villager.dimension, villager.location, FARMER_CONFIG.MONSTER_SEARCH_RADIUS);
             if (monster) {
                 record.targetMonster = monster;
@@ -322,7 +322,8 @@ export class FarmerManager {
                     const startStep = (record.step || 0) % 10;
                     let foundAction = false;
 
-                    for (let s = 0; s < 10; s++) {
+                    // Evaluate up to 3 tasks per interval to eliminate lag spikes
+                    for (let s = 0; s < 3; s++) {
                         const currentStep = (startStep + s) % 10;
 
                         // 0. Primary: Scan for ripe crops to harvest
@@ -543,8 +544,8 @@ export class FarmerManager {
                     }
 
                     if (!foundAction) {
-                        record.step = 0;
-                        record.timer = 25;
+                        record.step = (startStep + 3) % 10;
+                        record.timer = 30;
                     }
                 }
                 break;

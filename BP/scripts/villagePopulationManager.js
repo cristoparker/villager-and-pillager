@@ -310,7 +310,6 @@ export class VillagePopulationManager {
                         y: spawnLoc.y + 1.0,
                         z: spawnLoc.z + 0.5
                     });
-                    playSoundSafe(dimension, "mob.villager.yes", spawnLoc, { volume: 0.8, pitch: 1.05 });
 
                 } catch (err) {
                     console.error(`[VillagePopulation] Error spawning ${currentProf.id}: ${err}`);

@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-    Compiles and packages Smart Villager Addon v1.0.1 into .mcaddon and .mcpack files.
+    Compiles and packages Smart Villager Addon v1.0.2 into .mcaddon and .mcpack files.
 #>
 
 [CmdletBinding()]
 param(
-    [string]$Version = "1.0.1"
+    [string]$Version = "1.0.2"
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +31,7 @@ Write-Host "  BP Version     : $($bpManifest.header.version -join '.')" -Foregro
 Write-Host "  RP Header Name : $($rpManifest.header.name)" -ForegroundColor Green
 Write-Host "  RP Version     : $($rpManifest.header.version -join '.')" -ForegroundColor Green
 
-# 2. Build SmartVillagerAddon_v1.0.1.mcaddon (contains BP/ and RP/ directories)
+# 2. Build SmartVillagerAddon_v1.0.2.mcaddon (contains BP/ and RP/ directories)
 Write-Host "`n[2/4] Packaging SmartVillagerAddon_v$Version.mcaddon..." -ForegroundColor Yellow
 $addonFile = Join-Path $root "SmartVillagerAddon_v$Version.mcaddon"
 $addonLegacy = Join-Path $root "SmartVillagerAddon.mcaddon"

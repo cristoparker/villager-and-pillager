@@ -107,57 +107,31 @@ export function findNearbyMonsters(dimension, location, radius = FLETCHER_CONFIG
     let closest = null;
     let closestDist = Infinity;
 
-    for (const mobType of FLETCHER_CONFIG.HOSTILE_TYPES) {
-        try {
-            const mobs = dimension.getEntities({
-                type: mobType,
-                location: location,
-                maxDistance: radius
-            });
+    try {
+        const mobs = dimension.getEntities({
+            families: ["monster"],
+            location: location,
+            maxDistance: radius
+        });
 
-            for (const mob of mobs) {
-                if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
+        for (const mob of mobs) {
+            if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
+            const typeId = mob.typeId;
+            if (typeId.includes("villager") || typeId.includes("player") || typeId.includes("iron_golem")) continue;
 
-                // Check health (don't shoot already dead mobs)
-                try {
-                    const health = mob.getComponent("minecraft:health");
-                    if (health && health.currentValue <= 0) continue;
-                } catch {}
-
-                const d = distance(location, mob.location);
-                if (d < closestDist) {
-                    closestDist = d;
-                    closest = mob;
-                }
-            }
-        } catch {}
-    }
-
-    // Secondary fallback: search by hostile families
-    if (!closest) {
-        for (const family of FLETCHER_CONFIG.HOSTILE_FAMILIES) {
+            // Check health (don't shoot already dead mobs)
             try {
-                const mobs = dimension.getEntities({
-                    families: [family],
-                    location: location,
-                    maxDistance: radius
-                });
-
-                for (const mob of mobs) {
-                    if (!mob || !mob.isValid() || isTargetUnreachable(mob)) continue;
-                    // Do not target friendly entities or villagers
-                    const typeId = mob.typeId;
-                    if (typeId.includes("villager") || typeId.includes("player") || typeId.includes("iron_golem")) continue;
-
-                    const d = distance(location, mob.location);
-                    if (d < closestDist) {
-                        closestDist = d;
-                        closest = mob;
-                    }
-                }
+                const health = mob.getComponent("minecraft:health");
+                if (health && health.currentValue <= 0) continue;
             } catch {}
+
+            const d = distance(location, mob.location);
+            if (d < closestDist) {
+                closestDist = d;
+                closest = mob;
+            }
         }
-    }
+    } catch {}
 
     return closest;
 }
@@ -323,7 +297,6 @@ export function shootArrowAtBlock(villager, targetBlockPos, isCrossbow = false) 
     spawnParticleSafe(dim, "minecraft:crit", spawnPos);
 
     // Fletcher pride/happiness feedback
-    playSoundSafe(dim, "mob.villager.yes", vLoc, { volume: 0.8, pitch: 1.1 });
     spawnParticleSafe(dim, "minecraft:villager_happy", {
         x: vLoc.x,
         y: vLoc.y + 1.8,
@@ -430,7 +403,7 @@ export function shootArrowAtMonster(villager, monster, isCrossbow = false) {
         }
     } catch {
         try {
-            villager.runCommandAsync(`damage @e[type=!villager,type=!villager_v2,type=!player,c=1,r=20] ${damage} projectile entity @s`).catch(() => {});
+            villager.runCommandAsync(`damage @e[family=monster,type=!villager,type=!villager_v2,type=!iron_golem,type=!player,c=1,r=20] ${damage} projectile entity @s`).catch(() => {});
         } catch {}
     }
 
@@ -525,6 +498,5 @@ export function performCraftTippedArrows(villager, tablePos) {
         }
     } catch {}
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     return true;
 }

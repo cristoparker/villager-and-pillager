@@ -92,24 +92,24 @@ export function findNearbyMonsters(dimension, location, radius = WEAPONSMITH_CON
     let closest = null;
     let closestDist = Infinity;
 
-    for (const hostTypeId of FLETCHER_CONFIG.HOSTILE_TYPES) {
-        try {
-            const entities = dimension.getEntities({
-                type: hostTypeId,
-                location: location,
-                maxDistance: radius
-            });
-            for (const entity of entities) {
-                if (entity && entity.isValid() && !isTargetUnreachable(entity)) {
-                    const d = distance(location, entity.location);
-                    if (d < closestDist) {
-                        closestDist = d;
-                        closest = entity;
-                    }
+    try {
+        const entities = dimension.getEntities({
+            families: ["monster"],
+            location: location,
+            maxDistance: radius
+        });
+        for (const entity of entities) {
+            if (entity && entity.isValid() && !isTargetUnreachable(entity)) {
+                const typeId = entity.typeId;
+                if (typeId.includes("villager") || typeId.includes("iron_golem") || typeId.includes("player")) continue;
+                const d = distance(location, entity.location);
+                if (d < closestDist) {
+                    closestDist = d;
+                    closest = entity;
                 }
             }
-        } catch {}
-    }
+        }
+    } catch {}
 
     return closest;
 }
@@ -261,7 +261,6 @@ export function performSharpenAlly(villager, ally) {
         }, 900);
     } catch {}
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     return true;
 }
 
@@ -316,7 +315,7 @@ export function performAttackMonster(villager, monster, useAxe = false) {
         monster.applyDamage(dmg, { damagingEntity: villager });
     } catch {
         try {
-            villager.runCommandAsync(`damage @e[type=!villager,type=!villager_v2,type=!player,c=1,r=3] ${dmg} entity_attack entity @s`).catch(() => {});
+            villager.runCommandAsync(`damage @e[family=monster,type=!villager,type=!villager_v2,type=!iron_golem,type=!player,c=1,r=3] ${dmg} entity_attack entity @s`).catch(() => {});
         } catch {}
     }
 

@@ -107,7 +107,7 @@ export class ShepherdManager {
                     try {
                         const equippable = villager.getComponent("minecraft:equippable");
                         const item = equippable?.getEquipment("Mainhand");
-                        if (item && (item.typeId === "minecraft:shears" || item.typeId === "rpc:shears")) {
+                        if (item && item.typeId === "minecraft:shears") {
                             unequipShears(villager);
                         }
                     } catch {}

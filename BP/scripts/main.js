@@ -28,7 +28,7 @@ import { VillagePopulationManager } from "./villagePopulationManager.js";
 import { CustomEventsManager } from "./customEventsManager.js";
 import { summonAllVillagers } from "./summonHelper.js";
 import { synchronizeVillagerOccupation, clearAllProfessions, getVillagerProfession } from "./professionHelper.js";
-import { pruneUnreachableTargets } from "./utils.js";
+import { pruneUnreachableTargets, playSoundSafe, spawnParticleSafe } from "./utils.js";
 
 const fishermanManager = new FishermanManager();
 const shepherdManager = new ShepherdManager();
@@ -65,29 +65,35 @@ allManagers.customEventsManager = customEventsManager;
 
 let globalTickCounter = 0;
 
-// Central game tick loop - staggered across alternating tick phases for buttery smooth 20 TPS
+// Central game tick loop - staggered across 4 balanced phases for optimal TPS & zero lag
 system.runInterval(() => {
     globalTickCounter++;
-    const phase = globalTickCounter % 2;
+    const phase = globalTickCounter % 4;
 
-    // Phase 0: Primary gathering, farming & village expansion
+    // Phase 0: Primary gathering & farming
     if (phase === 0) {
         try { fishermanManager.update(); } catch (err) { console.error(`[Villager Addon] Error in fisherman loop: ${err}`); }
         try { farmerManager.update(); } catch (err) { console.error(`[Villager Addon] Error in farmer loop: ${err}`); }
+    }
+    // Phase 1: Shepherd & village expansion/population
+    else if (phase === 1) {
         try { shepherdManager.update(); } catch (err) { console.error(`[Villager Addon] Error in shepherd loop: ${err}`); }
         try { villageExpansionManager.update(); } catch (err) { console.error(`[Villager Addon] Error in expansion loop: ${err}`); }
         try { villagePopulationManager.update(); } catch (err) { console.error(`[Villager Addon] Error in population loop: ${err}`); }
     }
-    // Phase 1: Combat, crafting & scholar roles
-    else {
+    // Phase 2: Combat roles (Butcher, Fletcher, Weaponsmith)
+    else if (phase === 2) {
         try { butcherManager.update(); } catch (err) { console.error(`[Villager Addon] Error in butcher loop: ${err}`); }
         try { fletcherManager.update(); } catch (err) { console.error(`[Villager Addon] Error in fletcher loop: ${err}`); }
         try { weaponsmithManager.update(); } catch (err) { console.error(`[Villager Addon] Error in weaponsmith loop: ${err}`); }
+    }
+    // Phase 3: Scholar, healing & repair roles (Cleric, Armorer, Librarian)
+    else {
         try { clericManager.update(); } catch (err) { console.error(`[Villager Addon] Error in cleric loop: ${err}`); }
         try { armorerManager.update(); } catch (err) { console.error(`[Villager Addon] Error in armorer loop: ${err}`); }
         try { librarianManager.update(); } catch (err) { console.error(`[Villager Addon] Error in librarian loop: ${err}`); }
     }
-}, 1);
+}, 2);
 
 // Register newly spawned or transformed villagers with a 2-tick stabilization delay
 world.afterEvents.entitySpawn.subscribe((event) => {
@@ -96,6 +102,11 @@ world.afterEvents.entitySpawn.subscribe((event) => {
         if (entity && entity.isValid() && (entity.typeId === "minecraft:villager_v2" || entity.typeId === "minecraft:villager")) {
             system.runTimeout(() => {
                 if (!entity || !entity.isValid()) return;
+                const isBaby = entity.getComponent("minecraft:is_baby") !== undefined || (entity.matches && entity.matches({ families: ["baby"] }));
+                if (isBaby) {
+                    villageExpansionManager.onEntitySpawn(entity);
+                    return;
+                }
                 synchronizeVillagerOccupation(entity, allManagers);
                 fishermanManager.onEntitySpawn(entity);
                 shepherdManager.onEntitySpawn(entity);
@@ -112,11 +123,35 @@ world.afterEvents.entitySpawn.subscribe((event) => {
     } catch {}
 });
 
-// Instant hurt reaction: Clerics immediately drink regeneration upon taking damage
+// Instant hurt reaction: Safeguards friendly fire & Clerics immediately drink regeneration upon taking damage
 world.afterEvents.entityHurt.subscribe((event) => {
     try {
         const hurtEntity = event.hurtEntity;
         if (!hurtEntity || !hurtEntity.isValid()) return;
+
+        // Friendly-fire protection & iron golem anger de-escalation:
+        const damageSource = event.damageSource;
+        const attacker = damageSource?.damagingEntity;
+        if (attacker && attacker.isValid()) {
+            const hType = hurtEntity.typeId;
+            const aType = attacker.typeId;
+            const isHurtVillager = hType === "minecraft:villager_v2" || hType === "minecraft:villager";
+            const isAttackerVillager = aType === "minecraft:villager_v2" || aType === "minecraft:villager";
+            const isHurtGolem = hType === "minecraft:iron_golem";
+            const isAttackerGolem = aType === "minecraft:iron_golem";
+
+            // If a villager damaged another villager or an iron golem damaged a villager or vice versa:
+            if ((isHurtVillager && isAttackerVillager) || (isHurtVillager && isAttackerGolem) || (isHurtGolem && isAttackerVillager)) {
+                // If iron golem is involved, clear anger/targeting immediately
+                if (isAttackerGolem || isHurtGolem) {
+                    try {
+                        const golem = isAttackerGolem ? attacker : hurtEntity;
+                        golem.triggerEvent("minecraft:entity_born");
+                    } catch {}
+                }
+            }
+        }
+
         if (clericManager.isClericVillager(hurtEntity)) {
             clericManager.onClericHurt(hurtEntity, event.damage, event.damageSource);
         }
@@ -124,7 +159,7 @@ world.afterEvents.entityHurt.subscribe((event) => {
 });
 
 // Dynamic Profession & Occupation Synchronization Loop
-// Runs every 40 ticks (2 seconds) in the overworld to detect workstation changes without lag
+// Runs every 100 ticks (5 seconds) in the overworld to detect workstation changes without lag
 system.runInterval(() => {
     try {
         let dim;
@@ -157,7 +192,7 @@ system.runInterval(() => {
     } catch (err) {
         console.error(`[Villager Addon] Error in occupation sync loop: ${err}`);
     }
-}, 40);
+}, 100);
 
 // Allow player interactions to convert villagers into smart professions
 world.afterEvents.playerInteractWithEntity.subscribe((event) => {
@@ -173,6 +208,23 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
 
             const held = mainhand.typeId;
 
+            // Check if baby villager: babies cannot be given professions or trade until grown
+            const isBaby = target.getComponent("minecraft:is_baby") !== undefined || (target.matches && target.matches({ families: ["baby"] }));
+            if (isBaby) {
+                // Growth boost: feed golden apple, emerald, or cake to instantly grow into a trading adult!
+                if (held === "minecraft:golden_apple" || held === "minecraft:emerald" || held === "minecraft:cake") {
+                    target.triggerEvent("minecraft:ageable_grow_up");
+                    target.removeTag("rpc:baby_villager");
+                    spawnParticleSafe(target.dimension, "minecraft:villager_happy", {
+                        x: target.location.x,
+                        y: target.location.y + 1.0,
+                        z: target.location.z
+                    });
+                    playSoundSafe(target.dimension, "random.levelup", target.location, { volume: 1.0, pitch: 1.2 });
+                }
+                return;
+            }
+
             // 1. Turn into Fisherman
             if (held === "rpc:fishing_rod") {
                 clearAllProfessions(target, allManagers);
@@ -183,7 +235,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                 fishermanManager.registerFisherman(target);
             }
             // 2. Turn into Shepherd
-            else if (held === "rpc:shears" || held === "minecraft:shears") {
+            else if (held === "minecraft:shears") {
                 clearAllProfessions(target, allManagers);
                 target.triggerEvent("rpc:become_shepherd");
                 target.triggerEvent("minecraft:become_sheperd");
@@ -192,7 +244,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
                 shepherdManager.registerShepherd(target);
             }
             // 3. Turn into Butcher
-            else if (held === "rpc:cleaver" || held === "minecraft:iron_axe") {
+            else if (held === "minecraft:iron_axe") {
                 clearAllProfessions(target, allManagers);
                 target.triggerEvent("rpc:become_butcher");
                 target.triggerEvent("minecraft:become_butcher");

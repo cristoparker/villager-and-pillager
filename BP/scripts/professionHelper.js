@@ -14,7 +14,7 @@ export const PROFESSION_DATA = {
         variant: 1,
         family: "farmer",
         defaultItem: "minecraft:iron_hoe",
-        allowedItems: ["minecraft:iron_hoe", "minecraft:bone_meal", "minecraft:wheat", "minecraft:wheat_seeds", "minecraft:carrot", "minecraft:potato", "minecraft:beetroot"],
+        allowedItems: ["minecraft:iron_hoe", "minecraft:bone_meal", "minecraft:wheat", "minecraft:wheat_seeds", "minecraft:carrot", "minecraft:potato", "minecraft:beetroot", "minecraft:bread"],
         tag: "farmer",
         rpcTag: "rpc:farmer",
         displayName: "§e[Farmer]"
@@ -33,8 +33,8 @@ export const PROFESSION_DATA = {
         id: "shepherd",
         variant: 3,
         family: "shepherd",
-        defaultItem: "rpc:shears",
-        allowedItems: ["rpc:shears", "minecraft:shears", "minecraft:wheat", "minecraft:red_dye", "minecraft:blue_dye", "minecraft:yellow_dye", "minecraft:green_dye", "minecraft:purple_dye", "minecraft:orange_dye", "minecraft:pink_dye", "minecraft:cyan_dye", "minecraft:white_carpet"],
+        defaultItem: "minecraft:shears",
+        allowedItems: ["minecraft:shears", "minecraft:wheat", "minecraft:red_dye", "minecraft:blue_dye", "minecraft:yellow_dye", "minecraft:green_dye", "minecraft:purple_dye", "minecraft:orange_dye", "minecraft:pink_dye", "minecraft:cyan_dye", "minecraft:white_carpet"],
         tag: "shepherd",
         rpcTag: "rpc:shepherd",
         displayName: "§a[Shepherd]"
@@ -114,7 +114,7 @@ export const PROFESSION_DATA = {
         variant: 11,
         family: "butcher",
         defaultItem: "minecraft:iron_axe",
-        allowedItems: ["minecraft:iron_axe", "rpc:cleaver"],
+        allowedItems: ["minecraft:iron_axe"],
         tag: "butcher",
         rpcTag: "rpc:butcher",
         displayName: "§c[Butcher]"
@@ -152,6 +152,14 @@ export const ALL_STANDARD_TAGS = ALL_PROFESSION_KEYS.map(k => PROFESSION_DATA[k]
  */
 export function getVillagerProfession(entity) {
     if (!entity || !entity.isValid()) return null;
+
+    // Baby villagers cannot have professions
+    try {
+        if (entity.getComponent("minecraft:is_baby") !== undefined) return null;
+        const typeFam = entity.getComponent("minecraft:type_family");
+        if (typeFam && typeFam.hasTypeFamily("baby")) return null;
+        if (entity.matches && entity.matches({ families: ["baby"] })) return null;
+    } catch {}
 
     // 1. Primary check: minecraft:variant (set dynamically by Bedrock component groups 1-13)
     try {
@@ -273,6 +281,27 @@ function isNightTime() {
 export function synchronizeVillagerOccupation(villager, managers = {}) {
     if (!villager || !villager.isValid()) return;
 
+    // Baby villager check: babies must NEVER hold profession tools or receive profession tags
+    let isBaby = false;
+    try {
+        isBaby = villager.getComponent("minecraft:is_baby") !== undefined ||
+                 (villager.matches && villager.matches({ families: ["baby"] }));
+    } catch {}
+
+    if (isBaby) {
+        const equippable = villager.getComponent("minecraft:equippable");
+        const heldItem = equippable?.getEquipment(EquipmentSlot.Mainhand);
+        if (heldItem || ALL_RPC_TAGS.some(tag => villager.hasTag(tag))) {
+            clearAllProfessions(villager, managers);
+        }
+        return;
+    } else {
+        // Adult villager: clean up stale baby tag if present
+        if (villager.hasTag("rpc:baby_villager")) {
+            try { villager.removeTag("rpc:baby_villager"); } catch {}
+        }
+    }
+
     // Automatically strip any profession nameTags
     try {
         if (villager.nameTag && (villager.nameTag.includes("[") || villager.nameTag.includes("§"))) {
@@ -306,7 +335,11 @@ export function synchronizeVillagerOccupation(villager, managers = {}) {
         "minecraft:oak_log",
         "minecraft:wooden_door",
         "minecraft:torch",
-        "minecraft:crafting_table"
+        "minecraft:crafting_table",
+        "minecraft:bread",
+        "minecraft:wheat",
+        "minecraft:emerald",
+        "minecraft:apple"
     ];
 
     // Case 2: Holding an item or tag from a DIFFERENT profession

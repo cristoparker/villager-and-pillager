@@ -331,7 +331,6 @@ export function tickFishing(session) {
                 y: villager.location.y + 1.8,
                 z: villager.location.z
             });
-            playSoundSafe(villager.dimension, "mob.villager.yes", villager.location, { volume: 1.0, pitch: 1.0 });
 
             return false;
         }
@@ -490,7 +489,6 @@ export function performFeedAndTameCat(villager, cat) {
         cat.triggerEvent("minecraft:pet_tamed");
     } catch {}
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     return true;
 }
 
@@ -551,7 +549,6 @@ export function performCookFish(villager, campfirePos) {
         });
     } catch {}
 
-    playSoundSafe(dim, "mob.villager.yes", villager.location, { volume: 0.9, pitch: 1.05 });
     return true;
 }
 

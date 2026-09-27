@@ -56,7 +56,7 @@ export const SHEPHERD_CONFIG = {
     SHEAR_DISTANCE: 2.5,
     SHEAR_COOLDOWN_TICKS: 60,
     SHEAR_ANIMATION_TICKS: 22,
-    SHEARS_ITEM_ID: "rpc:shears",
+    SHEARS_ITEM_ID: "minecraft:shears",
     VANILLA_SHEARS_ITEM_ID: "minecraft:shears",
     WHEAT_ITEM_ID: "minecraft:wheat",
     LOOM_ID: "minecraft:loom",
@@ -100,7 +100,7 @@ export const BUTCHER_CONFIG = {
     SMOKER_LOAD_DISTANCE: 2.5,
     HUNT_COOLDOWN_TICKS: 60,
     SLAUGHTER_ANIMATION_TICKS: 22,
-    CLEAVER_ITEM_ID: "rpc:cleaver",
+    AXE_ITEM_ID: "minecraft:iron_axe",
     VANILLA_AXE_ITEM_ID: "minecraft:iron_axe",
     COAL_ITEM_ID: "minecraft:coal",
     COAL_LOAD_AMOUNT: 2
@@ -239,8 +239,8 @@ export const FARMER_CONFIG = {
     CHEST_SEARCH_RADIUS: 20,
     CHEST_DEPOSIT_DISTANCE: 2.5,
     BED_SEARCH_RADIUS: 14,
-    BED_COOLDOWN_TICKS: 4800,
-    CHEST_COOLDOWN_TICKS: 3600,
+    BED_COOLDOWN_TICKS: 24000,
+    CHEST_COOLDOWN_TICKS: 24000,
     FOOD_SHARE_RADIUS: 16,
     FOOD_SHARE_COOLDOWN_TICKS: 120, // 6 seconds - active bread distribution to everyone!
     COMPOSTER_ID: "minecraft:composter",
@@ -331,10 +331,12 @@ export const EXPANSION_CONFIG = {
     CHEST_SEARCH_RADIUS: 20,
     CHEST_DEPOSIT_DISTANCE: 2.5,
     BED_SEARCH_RADIUS: 64, // 64-block village detection system
-    BED_COOLDOWN_MIN_TICKS: 3600, // 3 minutes
-    BED_COOLDOWN_MAX_TICKS: 6000, // 5 minutes
-    BED_COOLDOWN_TICKS: 4800, // Default 4 minutes fallback
-    CHEST_COOLDOWN_TICKS: 3600, // 3 minutes
+    BED_COOLDOWN_MIN_TICKS: 18000, // 15 minutes (made rare)
+    BED_COOLDOWN_MAX_TICKS: 30000, // 25 minutes (made rare)
+    BED_COOLDOWN_TICKS: 24000, // Default 20 minutes fallback
+    CHEST_COOLDOWN_MIN_TICKS: 18000, // 15 minutes (made rare)
+    CHEST_COOLDOWN_MAX_TICKS: 30000, // 25 minutes (made rare)
+    CHEST_COOLDOWN_TICKS: 24000, // 20 minutes (made rare)
     WORKBENCH_SEARCH_RADIUS: 64, // 64-block workbench detection system
     WORKBENCH_COOLDOWN_MIN_TICKS: 3600, // 3 minutes
     WORKBENCH_COOLDOWN_MAX_TICKS: 6000, // 5 minutes
@@ -381,31 +383,5 @@ export const HAY_CONFIG = {
     COOLDOWN_MAX_TICKS: 4800, // 4 minutes
     CHANCE_TO_START_CLUSTER: 0.20,
     CHANCE_TO_EXPAND_CLUSTER: 0.70
-};
-
-export const HOUSE_BUILD_CONFIG = {
-    // Very few villagers will build homes (rare, special event)
-    BUILDER_CHANCE: 0.12, // 12% chance for an eligible adult villager to attempt building a home
-    BUILD_COOLDOWN_MIN_TICKS: 12000, // 10 minutes
-    BUILD_COOLDOWN_MAX_TICKS: 24000, // 20 minutes
-    AREA_COOLDOWN_MS: 900000, // 15 minutes per village area
-    SEARCH_RADIUS: 24, // Radius to search for free 5x5 building plots
-    MIN_DISTANCE_FROM_VILLAGER: 8,
-    MIN_DISTANCE_FROM_EXISTING_POI: 12,
-    STAGE_DURATION_TICKS: 30, // 1.5 seconds per construction stage
-    MAX_HOUSES_PER_AREA: 3,
-    
-    // Materials
-    FOUNDATION_BLOCK: "minecraft:cobblestone",
-    FLOOR_BLOCK: "minecraft:oak_planks",
-    CORNER_BLOCK: "minecraft:oak_log",
-    WALL_LOWER_BLOCK: "minecraft:cobblestone",
-    WALL_UPPER_BLOCK: "minecraft:oak_planks",
-    WINDOW_BLOCK: "minecraft:glass_pane",
-    ROOF_BLOCK: "minecraft:oak_planks",
-    DOOR_BLOCK: "minecraft:oak_door",
-    BED_BLOCK: "minecraft:bed",
-    LIGHT_BLOCK: "minecraft:torch",
-    FURNITURE_BLOCK: "minecraft:crafting_table"
 };
 
