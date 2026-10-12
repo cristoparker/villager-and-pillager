@@ -17,6 +17,7 @@ import {
     isTargetUnreachable
 } from "./utils.js";
 import { findCastTarget, findWaterSurfaceY } from "./waterScanner.js";
+import { globalExpansionManager } from "./villageExpansionManager.js";
 
 /**
  * Calculates the exact tip position of the held fishing rod in world space.
@@ -320,7 +321,18 @@ export function tickFishing(session) {
         });
 
         if (p >= 1.0) {
-            // Reeling complete: cleanup and celebrate
+            // Reeling complete: collect caught fish directly into villager carried items!
+            const caughtType = session.caughtTypeId || "minecraft:cod";
+            if (globalExpansionManager) {
+                const expRecord = globalExpansionManager.records?.get(villager.id);
+                if (expRecord) {
+                    const existing = expRecord.carriedItems.find(i => i.typeId === caughtType);
+                    if (existing) existing.amount += 1;
+                    else expRecord.carriedItems.push({ typeId: caughtType, amount: 1 });
+                }
+            }
+
+            playSoundSafe(villager.dimension, "random.pop", villager.location, { volume: 0.9, pitch: 1.2 });
             cleanupSession(session);
             try {
                 villager.triggerEvent("rpc:stop_fishing");
@@ -357,8 +369,9 @@ function startReeling(session) {
     session.reelEnd = { x: rodTip.x, y: villager.location.y + 0.75, z: rodTip.z };
     session.reelArcHeight = Math.max(1.4, Math.min(3.0, horizDist * 0.2));
 
-    // Spawn caught fish item that flies along the arc alongside the hook
+    // Spawn visual caught fish item that flies along the arc alongside the hook
     const loot = pickRandomLoot(LOOT_TABLE);
+    session.caughtTypeId = loot.typeId;
     try {
         const fishItem = new ItemStack(loot.typeId, 1);
         session.caughtItem = villager.dimension.spawnItem(fishItem, {
@@ -382,6 +395,12 @@ export function cleanupSession(session) {
                 session.bobber.remove();
             } catch {}
             session.bobber = null;
+        }
+        if (session.caughtItem && session.caughtItem.isValid()) {
+            try {
+                session.caughtItem.remove();
+            } catch {}
+            session.caughtItem = null;
         }
     }
 }
@@ -536,18 +555,17 @@ export function performCookFish(villager, campfirePos) {
 
     playSoundSafe(dim, "random.fizz", campfirePos, { volume: 1.0, pitch: 1.1 });
     playSoundSafe(dim, "fire.fire", campfirePos, { volume: 1.0, pitch: 1.0 });
-    spawnParticleSafe(dim, "minecraft:smoke_particle", { x: campfirePos.x + 0.5, y: campfirePos.y + 0.7, z: campfirePos.z + 0.5 });
-
-    // Drop cooked fish
+    // Store cooked fish directly into villager carried items for chest deposit
     const cookedItems = FISHERMAN_CONFIG.COOKED_FISH_ITEMS;
     const chosen = cookedItems[Math.floor(Math.random() * cookedItems.length)];
-    try {
-        dim.spawnItem(new ItemStack(chosen, 1), {
-            x: campfirePos.x + 0.5,
-            y: campfirePos.y + 0.6,
-            z: campfirePos.z + 0.5
-        });
-    } catch {}
+    if (globalExpansionManager) {
+        const expRecord = globalExpansionManager.records?.get(villager.id);
+        if (expRecord) {
+            const existing = expRecord.carriedItems.find(i => i.typeId === chosen);
+            if (existing) existing.amount += 1;
+            else expRecord.carriedItems.push({ typeId: chosen, amount: 1 });
+        }
+    }
 
     return true;
 }

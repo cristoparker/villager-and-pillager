@@ -270,22 +270,35 @@ export class ButcherManager {
             }
 
             case ButcherState.COMBAT: {
-                // Ensure axe is equipped for combat
                 equipAxe(villager);
-
                 record.timer--;
-                if (record.timer <= 0) {
+
+                const monster = findNearbyMonsters(villager.dimension, villager.location, 12);
+                if (!monster) {
+                    record.state = ButcherState.COOLDOWN;
                     record.timer = 20;
-                    // Check if monsters are still nearby
-                    const monster = findNearbyMonsters(villager.dimension, villager.location, 16);
-                    if (!monster) {
-                        // Village is safe! Return to cooldown / idle
-                        record.state = ButcherState.COOLDOWN;
-                        record.timer = 30;
-                        try {
-                            villager.triggerEvent("minecraft:schedule_wander_villager");
-                        } catch {}
-                    }
+                    break;
+                }
+
+                const dist = distance(villager.location, monster.location);
+                if (dist <= BUTCHER_CONFIG.ATTACK_DISTANCE) {
+                    setEntityLook(villager, monster.location);
+                    try {
+                        villager.playAnimation("animation.villager.raise_arms");
+                        monster.applyDamage(6, { damagingEntity: villager });
+                    } catch {}
+                    record.timer = 20;
+                } else if (dist < 6.0) {
+                    // Back away from monster
+                    const dx = villager.location.x - monster.location.x;
+                    const dz = villager.location.z - monster.location.z;
+                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
+                    try {
+                        villager.applyImpulse({ x: (dx / len) * 0.12, y: 0, z: (dz / len) * 0.12 });
+                    } catch {}
+                } else {
+                    record.state = ButcherState.IDLE;
+                    record.timer = 30;
                 }
                 break;
             }

@@ -7,7 +7,7 @@
 import { ItemStack, EquipmentSlot, system } from "@minecraft/server";
 import { SHEPHERD_CONFIG } from "./config.js";
 import { distance, distance2D, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
-import { notifyDroppedItem } from "./villageExpansionManager.js";
+import { globalExpansionManager, notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
  * Equips shears in the villager's main hand.
@@ -202,17 +202,15 @@ export function performShear(villager, sheep) {
     const woolItemId = SHEPHERD_CONFIG.WOOL_MAP[colorIndex] || "minecraft:white_wool";
     const woolCount = Math.floor(Math.random() * 2) + 1; // 1 to 2 wool blocks
 
-    // 6. Spawn dropped wool item at sheep
-    try {
-        const droppedWool = dim.spawnItem(new ItemStack(woolItemId, woolCount), {
-            x: sheepLoc.x,
-            y: sheepLoc.y + 0.5,
-            z: sheepLoc.z
-        });
-        if (droppedWool) {
-            notifyDroppedItem(villager, droppedWool);
+    // 6. Store wool directly into villager carried items for chest deposit
+    if (globalExpansionManager) {
+        const expRecord = globalExpansionManager.records?.get(villager.id);
+        if (expRecord) {
+            const existing = expRecord.carriedItems.find(i => i.typeId === woolItemId);
+            if (existing) existing.amount += woolCount;
+            else expRecord.carriedItems.push({ typeId: woolItemId, amount: woolCount });
         }
-    } catch {}
+    }
 
     // 7. Spurt wool particles
     spawnParticleSafe(dim, "minecraft:balloon_pop_particle", {
@@ -534,16 +532,15 @@ export function performLoomWeaving(villager, loomPos) {
     spawnParticleSafe(dim, "minecraft:balloon_pop_particle", { x: loomPos.x + 0.5, y: loomPos.y + 0.8, z: loomPos.z + 0.5 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: loomPos.x + 0.5, y: loomPos.y + 1.2, z: loomPos.z + 0.5 });
 
-    try {
-        const droppedCarpet = dim.spawnItem(new ItemStack("minecraft:white_carpet", 1), {
-            x: loomPos.x + 0.5,
-            y: loomPos.y + 0.6,
-            z: loomPos.z + 0.5
-        });
-        if (droppedCarpet) {
-            notifyDroppedItem(villager, droppedCarpet);
+    // Store woven carpet directly into carried items for chest deposit
+    if (globalExpansionManager) {
+        const expRecord = globalExpansionManager.records?.get(villager.id);
+        if (expRecord) {
+            const existing = expRecord.carriedItems.find(i => i.typeId === "minecraft:white_carpet");
+            if (existing) existing.amount += 1;
+            else expRecord.carriedItems.push({ typeId: "minecraft:white_carpet", amount: 1 });
         }
-    } catch {}
+    }
 
     return true;
 }

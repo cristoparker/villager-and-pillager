@@ -62,6 +62,7 @@ allManagers.villagePopulationManager = villagePopulationManager;
 
 const customEventsManager = new CustomEventsManager(allManagers);
 allManagers.customEventsManager = customEventsManager;
+villageExpansionManager.setManagers(allManagers);
 
 let globalTickCounter = 0;
 
@@ -264,6 +265,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             // 5. Turn into Farmer (Iron Hoe)
             else if (held === "minecraft:iron_hoe") {
                 clearAllProfessions(target, allManagers);
+                target.triggerEvent("rpc:become_farmer");
                 target.triggerEvent("minecraft:become_farmer");
                 target.addTag("rpc:farmer");
                 target.addTag("farmer");
@@ -272,6 +274,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             // 6. Turn into Weaponsmith (Iron Sword)
             else if (held === "minecraft:iron_sword") {
                 clearAllProfessions(target, allManagers);
+                target.triggerEvent("rpc:become_weaponsmith");
                 target.triggerEvent("minecraft:become_weaponsmith");
                 target.addTag("rpc:weaponsmith");
                 target.addTag("weaponsmith");
@@ -280,6 +283,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             // 7. Turn into Cleric (Potion or Splash Potion)
             else if (held === "minecraft:potion" || held === "minecraft:splash_potion") {
                 clearAllProfessions(target, allManagers);
+                target.triggerEvent("rpc:become_cleric");
                 target.triggerEvent("minecraft:become_cleric");
                 target.addTag("rpc:cleric");
                 target.addTag("cleric");
@@ -288,6 +292,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             // 8. Turn into Armorer (Iron Ingot or Chestplate)
             else if (held === "minecraft:iron_ingot" || held === "minecraft:iron_chestplate") {
                 clearAllProfessions(target, allManagers);
+                target.triggerEvent("rpc:become_armorer");
                 target.triggerEvent("minecraft:become_armorer");
                 target.addTag("rpc:armorer");
                 target.addTag("armorer");
@@ -296,6 +301,7 @@ world.afterEvents.playerInteractWithEntity.subscribe((event) => {
             // 9. Turn into Librarian (Book or Enchanted Book)
             else if (held === "minecraft:book" || held === "minecraft:enchanted_book") {
                 clearAllProfessions(target, allManagers);
+                target.triggerEvent("rpc:become_librarian");
                 target.triggerEvent("minecraft:become_librarian");
                 target.addTag("rpc:librarian");
                 target.addTag("librarian");

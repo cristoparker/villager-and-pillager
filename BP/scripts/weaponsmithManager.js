@@ -259,12 +259,8 @@ export class WeaponsmithManager {
                     equipSword(villager);
                 }
 
-                // Face monster and close in
-                if (dist > WEAPONSMITH_CONFIG.ATTACK_DISTANCE) {
-                    smoothMoveTowards(villager, mLoc, { speed: 0.20, stopDistance: WEAPONSMITH_CONFIG.ATTACK_DISTANCE, lookTarget: mLoc });
-                } else {
-                    setEntityLook(villager, mLoc);
-                }
+                // Face monster while native melee attack navigates
+                setEntityLook(villager, mLoc);
 
                 // Strike!
                 if (dist <= WEAPONSMITH_CONFIG.ATTACK_DISTANCE + 0.5 && record.timer <= 0) {

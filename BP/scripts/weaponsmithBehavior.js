@@ -228,6 +228,9 @@ export function findNearbyCombatAllies(dimension, location, radius = WEAPONSMITH
  */
 export function performSharpenAlly(villager, ally) {
     if (!villager || !villager.isValid() || !ally || !ally.isValid()) return false;
+    const dist = distance(villager.location, ally.location);
+    if (dist > 3.0) return false;
+
     const dim = villager.dimension;
     const aLoc = ally.location;
 
@@ -241,14 +244,14 @@ export function performSharpenAlly(villager, ally) {
     spawnParticleSafe(dim, "minecraft:crit", { x: aLoc.x, y: aLoc.y + 1.2, z: aLoc.z });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: aLoc.x, y: aLoc.y + 1.5, z: aLoc.z });
 
-    // Grant 45 seconds Strength I & Speed I
+    // Grant 15 seconds Strength I & Speed I
     try {
-        ally.addEffect("strength", 900, { amplifier: 0, showParticles: true });
-        ally.addEffect("speed", 900, { amplifier: 0, showParticles: true });
+        ally.addEffect("strength", 300, { amplifier: 0, showParticles: true });
+        ally.addEffect("speed", 300, { amplifier: 0, showParticles: true });
     } catch {
         try {
-            ally.runCommandAsync("effect @s strength 45 0 true").catch(() => {});
-            ally.runCommandAsync("effect @s speed 45 0 true").catch(() => {});
+            ally.runCommandAsync("effect @s strength 15 0 true").catch(() => {});
+            ally.runCommandAsync("effect @s speed 15 0 true").catch(() => {});
         } catch {}
     }
 
@@ -258,7 +261,7 @@ export function performSharpenAlly(villager, ally) {
             try {
                 if (ally.isValid()) ally.removeTag("rpc:sharpened");
             } catch {}
-        }, 900);
+        }, 300);
     } catch {}
 
     return true;

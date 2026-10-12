@@ -1532,41 +1532,6 @@
         },
         "minecraft:loot": {
           "table": "loot_tables/entities/villager_farmer.json"
-        },
-        "minecraft:attack": {
-          "damage": 5
-        },
-        "minecraft:behavior.melee_attack": {
-          "priority": 3,
-          "speed_multiplier": 1.15,
-          "track_target": true,
-          "reach_multiplier": 1.5
-        },
-        "minecraft:behavior.nearest_attackable_target": {
-          "priority": 2,
-          "must_see": true,
-          "reselect_targets": true,
-          "within_radius": 16.0,
-          "entity_types": [
-            {
-              "filters": {
-                "any_of": [
-                  { "test": "is_family", "subject": "other", "value": "monster" },
-                  { "test": "is_family", "subject": "other", "value": "zombie" },
-                  { "test": "is_family", "subject": "other", "value": "undead" },
-                  { "test": "is_family", "subject": "other", "value": "skeleton" },
-                  { "test": "is_family", "subject": "other", "value": "spider" },
-                  { "test": "is_family", "subject": "other", "value": "creeper" },
-                  { "test": "is_family", "subject": "other", "value": "illager" }
-                ]
-              },
-              "max_dist": 16.0
-            }
-          ]
-        },
-        "minecraft:behavior.avoid_mob_type": {
-          "priority": 10,
-          "entity_types": []
         }
       },
       "work_schedule_farmer": {
@@ -2713,17 +2678,8 @@
         "minecraft:trade_resupply": {}
       },
       "rpc:fishing_mode": {
-        "minecraft:type_family": {
-          "family": [
-            "villager",
-            "peasant",
-            "fisherman",
-            "mob",
-            "rpc_fishing"
-          ]
-        },
-        "minecraft:variant": {
-          "value": 2
+        "minecraft:movement": {
+          "value": 0.0
         },
         "minecraft:equipment": {
           "slot_drop_chance": [
@@ -3191,13 +3147,24 @@
         },
         "remove": {
           "component_groups": [
+            "armorer",
+            "butcher",
+            "cartographer",
+            "cleric",
+            "farmer",
+            "fisherman",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
             "baby",
             "child_schedule",
             "job_specific_goals",
             "trade_components",
-            "fisherman",
-            "shepherd",
-            "butcher",
             "fisher_schedule",
             "rpc:fishing_mode",
             "work_schedule"
@@ -3216,13 +3183,26 @@
         },
         "remove": {
           "component_groups": [
+            "armorer",
+            "butcher",
+            "cartographer",
+            "cleric",
+            "farmer",
+            "fletcher",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
             "baby",
             "child_schedule",
             "job_specific_goals",
             "trade_components",
-            "shepherd",
-            "butcher",
-            "rpc:fishing_mode"
+            "rpc:fishing_mode",
+            "work_schedule"
           ]
         }
       },
@@ -3238,12 +3218,24 @@
         },
         "remove": {
           "component_groups": [
+            "armorer",
+            "butcher",
+            "cartographer",
+            "cleric",
+            "farmer",
+            "fisherman",
+            "fletcher",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
             "baby",
             "child_schedule",
             "job_specific_goals",
             "trade_components",
-            "fisherman",
-            "butcher",
             "fisher_schedule",
             "rpc:fishing_mode",
             "work_schedule"
@@ -3262,15 +3254,205 @@
         },
         "remove": {
           "component_groups": [
+            "armorer",
+            "cartographer",
+            "cleric",
+            "farmer",
+            "fisherman",
+            "fletcher",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
             "baby",
             "child_schedule",
             "job_specific_goals",
             "trade_components",
-            "fisherman",
-            "shepherd",
             "fisher_schedule",
             "rpc:fishing_mode",
             "work_schedule"
+          ]
+        }
+      },
+      "rpc:become_librarian": {
+        "add": {
+          "component_groups": [
+            "librarian",
+            "adult",
+            "make_and_receive_love",
+            "behavior_non_peasant",
+            "librarian_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "armorer",
+            "butcher",
+            "cartographer",
+            "cleric",
+            "farmer",
+            "fisherman",
+            "fletcher",
+            "leatherworker",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisher_schedule",
+            "rpc:fishing_mode",
+            "work_schedule"
+          ]
+        }
+      },
+      "rpc:become_farmer": {
+        "add": {
+          "component_groups": [
+            "farmer",
+            "adult",
+            "make_and_receive_love",
+            "behavior_peasant",
+            "farmer_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "armorer",
+            "butcher",
+            "cartographer",
+            "cleric",
+            "fisherman",
+            "fletcher",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisher_schedule",
+            "rpc:fishing_mode",
+            "work_schedule"
+          ]
+        }
+      },
+      "rpc:become_cleric": {
+        "add": {
+          "component_groups": [
+            "cleric",
+            "adult",
+            "make_and_receive_love",
+            "behavior_non_peasant",
+            "cleric_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "armorer",
+            "butcher",
+            "cartographer",
+            "farmer",
+            "fisherman",
+            "fletcher",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisher_schedule",
+            "rpc:fishing_mode",
+            "work_schedule"
+          ]
+        }
+      },
+      "rpc:become_armorer": {
+        "add": {
+          "component_groups": [
+            "armorer",
+            "adult",
+            "make_and_receive_love",
+            "behavior_non_peasant",
+            "work_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "butcher",
+            "cartographer",
+            "cleric",
+            "farmer",
+            "fisherman",
+            "fletcher",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "weaponsmith",
+            "unskilled",
+            "nitwit",
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisher_schedule",
+            "rpc:fishing_mode"
+          ]
+        }
+      },
+      "rpc:become_weaponsmith": {
+        "add": {
+          "component_groups": [
+            "weaponsmith",
+            "adult",
+            "make_and_receive_love",
+            "behavior_non_peasant",
+            "work_schedule"
+          ]
+        },
+        "remove": {
+          "component_groups": [
+            "armorer",
+            "butcher",
+            "cartographer",
+            "cleric",
+            "farmer",
+            "fisherman",
+            "fletcher",
+            "leatherworker",
+            "librarian",
+            "mason",
+            "shepherd",
+            "toolsmith",
+            "unskilled",
+            "nitwit",
+            "baby",
+            "child_schedule",
+            "job_specific_goals",
+            "trade_components",
+            "fisher_schedule",
+            "rpc:fishing_mode"
           ]
         }
       },

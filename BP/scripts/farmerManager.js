@@ -245,17 +245,6 @@ export class FarmerManager {
         if (record.chestCooldown > 0) record.chestCooldown--;
         if (record.foodShareCooldown > 0) record.foodShareCooldown--;
 
-        // Threat Priority: Check for nearby monsters threatening the farm (throttled every 10 ticks)
-        if (record.state !== FarmerState.SLEEPING && record.state !== FarmerState.COMBAT && ((record.timer || 0) % 10 === 0)) {
-            const monster = findNearbyMonsters(villager.dimension, villager.location, FARMER_CONFIG.MONSTER_SEARCH_RADIUS);
-            if (monster) {
-                record.targetMonster = monster;
-                record.state = FarmerState.COMBAT;
-                record.timer = 5;
-                equipHoe(villager);
-            }
-        }
-
         switch (record.state) {
             case FarmerState.SLEEPING: {
                 if (!isNight) {
@@ -265,50 +254,6 @@ export class FarmerManager {
                     equipHoe(villager);
                     record.state = FarmerState.IDLE;
                     record.timer = 40;
-                }
-                break;
-            }
-
-            case FarmerState.COMBAT: {
-                equipHoe(villager);
-                record.timer--;
-
-                if (!record.targetMonster || !record.targetMonster.isValid()) {
-                    record.targetMonster = null;
-                    record.state = FarmerState.COOLDOWN;
-                    record.timer = 20;
-                    break;
-                }
-
-                const dist = distance(villager.location, record.targetMonster.location);
-                if (dist > 16.0) {
-                    record.targetMonster = null;
-                    record.state = FarmerState.COOLDOWN;
-                    record.timer = 20;
-                    break;
-                }
-
-                // Face monster
-                try {
-                    if (record.timer % 10 === 0) {
-                        const rot = getLookRotation(villager.location, record.targetMonster.location);
-                        villager.teleport(villager.location, { rotation: { x: 0, y: rot.y } });
-                    }
-                } catch {}
-
-                // Close the distance
-                if (dist > FARMER_CONFIG.ATTACK_DISTANCE) {
-                    const dx = record.targetMonster.location.x - villager.location.x;
-                    const dz = record.targetMonster.location.z - villager.location.z;
-                    const len = Math.sqrt(dx * dx + dz * dz) || 1.0;
-                    try {
-                        villager.applyImpulse({ x: (dx / len) * 0.16, y: 0, z: (dz / len) * 0.16 });
-                    } catch {}
-                }
-
-                if (dist <= FARMER_CONFIG.ATTACK_DISTANCE + 0.5 && record.timer <= 0) {
-                    performAttackMonster(villager, record.targetMonster);
-                    record.timer = 20; // 1 second attack swing rate
                 }
                 break;
             }

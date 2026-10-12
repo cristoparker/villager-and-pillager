@@ -11,7 +11,7 @@
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { EXPANSION_CONFIG, HAY_CONFIG, getRandomCooldownTicks } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, placeBedBlock, isSolidGround, isPassableBlock, isFreeBedSpace, isReplaceableSpace, setEntityLook, smoothMoveTowards, markTargetUnreachable, isTargetUnreachable } from "./utils.js";
-import { getVillagerProfession } from "./professionHelper.js";
+import { getVillagerProfession, isVillagerBusyWithProfession } from "./professionHelper.js";
 
 /**
  * Checks if a villager entity is a baby using multiple engine indicators.
@@ -163,6 +163,15 @@ export class VillageExpansionManager {
         /** @type {Map<string, { state: string, villager: Entity, carriedItems: Array<{ typeId: string, amount: number }>, targetItemEntity: Entity|null, targetChest: any, placementSpot: Vector3|null, targetWorkbenchType: string|null, bedCooldown: number, workbenchCooldown: number, depositCooldown: number, chestCooldown: number, breedCooldown: number, timer: number }>} */
         this.records = new Map();
         this.scanCooldownTicks = 0;
+        this.managers = null;
+    }
+
+    /**
+     * Injects reference to all active profession managers.
+     * @param {object} managers 
+     */
+    setManagers(managers) {
+        this.managers = managers;
     }
 
     /**
@@ -261,6 +270,11 @@ export class VillageExpansionManager {
      */
     directTargetDroppedItem(villager, itemEntity) {
         if (!villager || !villager.isValid() || !itemEntity || !itemEntity.isValid()) return;
+        if (this.managers && isVillagerBusyWithProfession(villager, this.managers)) {
+            // Do not distract a villager currently working on their profession
+            return;
+        }
+
         let record = this.records.get(villager.id);
         if (!record) {
             this.registerVillager(villager);
@@ -319,6 +333,21 @@ export class VillageExpansionManager {
         const { villager } = record;
         const dim = villager.dimension;
         const vLoc = villager.location;
+
+        // Priority Check: If villager is actively performing profession tasks
+        // (fishing, harvesting crops, shearing sheep, studying, crafting arrows, or in combat),
+        // DO NOT interrupt them with village expansion tasks or item collection!
+        if (this.managers && isVillagerBusyWithProfession(villager, this.managers)) {
+            if (record.state !== ExpansionState.IDLE) {
+                record.state = ExpansionState.IDLE;
+                record.targetItemEntity = null;
+                record.targetChest = null;
+                record.placementSpot = null;
+                record.targetWorkbenchType = null;
+            }
+            record.timer = 20;
+            return;
+        }
 
         // At night, pause non-bed expansion tasks (items, chests, workbenches, hay bales)
         if (isNight) {

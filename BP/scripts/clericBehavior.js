@@ -71,7 +71,7 @@ export function findNearbyInjuredAlly(dimension, location, radius = CLERIC_CONFI
     ];
 
     let mostInjured = null;
-    let lowestHealthRatio = 0.95; // Must have lost at least 5% health
+    let lowestHealthRatio = 0.85; // Must have lost at least 15% health
 
     for (const typeId of allyTypes) {
         try {
@@ -137,6 +137,8 @@ export function findNearbyBrewingStand(dimension, location, radius = 16) {
  */
 export function performHeal(villager, ally) {
     if (!villager || !villager.isValid() || !ally || !ally.isValid()) return false;
+    const dist = distance(villager.location, ally.location);
+    if (dist > 3.0) return false;
 
     const dim = villager.dimension;
     const allyLoc = ally.location;

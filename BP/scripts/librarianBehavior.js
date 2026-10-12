@@ -7,7 +7,7 @@
 import { ItemStack, EquipmentSlot } from "@minecraft/server";
 import { LIBRARIAN_CONFIG, FLETCHER_CONFIG } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setBlockSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
-import { notifyDroppedItem } from "./villageExpansionManager.js";
+import { globalExpansionManager, notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
  * Equips enchanted book or book in the librarian's main hand.
@@ -355,17 +355,16 @@ export function performHarvestSugarcane(villager, sugarcaneInfo) {
     playSoundSafe(dim, "dig.grass", pos, { volume: 0.9, pitch: 1.0 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: pos.x + 0.5, y: pos.y + 0.8, z: pos.z + 0.5 });
 
-    // Drop sugarcane produce items
-    try {
-        const droppedCane = dim.spawnItem(new ItemStack(LIBRARIAN_CONFIG.SUGARCANE_ITEM_ID, Math.max(1, harvestedCount)), {
-            x: pos.x + 0.5,
-            y: pos.y + 0.5,
-            z: pos.z + 0.5
-        });
-        if (droppedCane) {
-            notifyDroppedItem(villager, droppedCane);
+    // Store harvested sugarcane directly into carried items for chest deposit
+    const count = Math.max(1, harvestedCount);
+    if (globalExpansionManager) {
+        const expRecord = globalExpansionManager.records?.get(villager.id);
+        if (expRecord) {
+            const existing = expRecord.carriedItems.find(i => i.typeId === LIBRARIAN_CONFIG.SUGARCANE_ITEM_ID);
+            if (existing) existing.amount += count;
+            else expRecord.carriedItems.push({ typeId: LIBRARIAN_CONFIG.SUGARCANE_ITEM_ID, amount: count });
         }
-    } catch {}
+    }
 
     return true;
 }
@@ -394,6 +393,7 @@ export function equipPaper(villager) {
 
 /**
  * Crafts paper into books at the lectern workstation.
+ * Stores crafted items neatly in inventory/carriedItems instead of leaving them floating on lecterns!
  * @param {Entity} villager 
  * @param {Vector3} lecternPos 
  */
@@ -411,27 +411,26 @@ export function performCraftBooks(villager, lecternPos) {
     spawnParticleSafe(dim, "minecraft:enchanting_table_particle", { x: lecternPos.x + 0.5, y: lecternPos.y + 1.2, z: lecternPos.z + 0.5 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: lecternPos.x + 0.5, y: lecternPos.y + 1.0, z: lecternPos.z + 0.5 });
 
-    // 50% chance to drop paper, 50% chance to bind a regular book
-    try {
-        const dropItem = Math.random() < 0.5 
-            ? new ItemStack(LIBRARIAN_CONFIG.PAPER_ITEM_ID, 2)
-            : new ItemStack(LIBRARIAN_CONFIG.REGULAR_BOOK_ITEM_ID, 1);
-        const droppedCraft = dim.spawnItem(dropItem, {
-            x: lecternPos.x + 0.5,
-            y: lecternPos.y + 0.8,
-            z: lecternPos.z + 0.5
-        });
-        if (droppedCraft) {
-            notifyDroppedItem(villager, droppedCraft);
+    // Store crafted books/paper directly into villager carried items for chest deposit
+    const isBook = Math.random() < 0.5;
+    const itemTypeId = isBook ? LIBRARIAN_CONFIG.REGULAR_BOOK_ITEM_ID : LIBRARIAN_CONFIG.PAPER_ITEM_ID;
+    const count = isBook ? 1 : 2;
+
+    if (globalExpansionManager) {
+        const expRecord = globalExpansionManager.records?.get(villager.id);
+        if (expRecord) {
+            const existing = expRecord.carriedItems.find(i => i.typeId === itemTypeId);
+            if (existing) existing.amount += count;
+            else expRecord.carriedItems.push({ typeId: itemTypeId, amount: count });
         }
-    } catch {}
+    }
 
     equipBook(villager);
     return true;
 }
 
 /**
- * Channels an enchanting blessing from the lectern, buffing allies with Haste & Regeneration.
+ * Channels an enchanting blessing from the lectern, buffing closely standing allies with short Haste & Regeneration.
  * @param {Entity} villager 
  * @param {Vector3} lecternPos 
  */
@@ -447,17 +446,17 @@ export function performEnchantingBlessing(villager, lecternPos) {
     playSoundSafe(dim, "random.orb", lecternPos, { volume: 0.9, pitch: 1.1 });
     spawnParticleSafe(dim, "minecraft:enchanting_table_particle", { x: lecternPos.x + 0.5, y: lecternPos.y + 1.5, z: lecternPos.z + 0.5 });
 
-    // Buff nearby players and villagers
+    // Only buff allies standing immediately adjacent to the lectern (within 3.0 blocks)
     try {
         const allies = [
-            ...dim.getEntities({ type: "minecraft:villager_v2", location: lecternPos, maxDistance: LIBRARIAN_CONFIG.INSPIRATION_RADIUS }),
-            ...dim.getEntities({ type: "minecraft:player", location: lecternPos, maxDistance: LIBRARIAN_CONFIG.INSPIRATION_RADIUS })
+            ...dim.getEntities({ type: "minecraft:villager_v2", location: lecternPos, maxDistance: 3.0 }),
+            ...dim.getEntities({ type: "minecraft:player", location: lecternPos, maxDistance: 3.0 })
         ];
 
         for (const ally of allies) {
             if (ally && ally.isValid()) {
-                ally.addEffect("haste", 300, { amplifier: 1, showParticles: true });
-                ally.addEffect("regeneration", 160, { amplifier: 0, showParticles: true });
+                ally.addEffect("haste", 200, { amplifier: 0, showParticles: true });
+                ally.addEffect("regeneration", 100, { amplifier: 0, showParticles: true });
                 spawnParticleSafe(dim, "minecraft:villager_happy", { x: ally.location.x, y: ally.location.y + 1.0, z: ally.location.z });
             }
         }

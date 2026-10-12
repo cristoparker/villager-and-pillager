@@ -161,7 +161,17 @@ export function getVillagerProfession(entity) {
         if (entity.matches && entity.matches({ families: ["baby"] })) return null;
     } catch {}
 
-    // 1. Primary check: minecraft:variant (set dynamically by Bedrock component groups 1-13)
+    // 1. Explicit custom tags check first: rpc:librarian, rpc:fisherman, etc.
+    // Explicit player-assigned jobs MUST have top priority over fallback variants!
+    for (const key of ALL_PROFESSION_KEYS) {
+        try {
+            if (entity.hasTag(PROFESSION_DATA[key].rpcTag)) {
+                return key;
+            }
+        } catch {}
+    }
+
+    // 2. Secondary check: minecraft:variant (set dynamically by Bedrock component groups 1-13)
     try {
         const variantComp = entity.getComponent("minecraft:variant");
         if (variantComp && typeof variantComp.value === "number") {
@@ -175,7 +185,7 @@ export function getVillagerProfession(entity) {
         }
     } catch {}
 
-    // 2. Secondary check: type_family
+    // 3. Tertiary check: type_family
     for (const key of ALL_PROFESSION_KEYS) {
         try {
             if (entity.matches({ families: [PROFESSION_DATA[key].family] })) {
@@ -184,16 +194,16 @@ export function getVillagerProfession(entity) {
         } catch {}
     }
 
-    // 3. Custom tags check: rpc:butcher, rpc:farmer, etc. (for summoned / player-converted villagers)
+    // 4. Standard tags fallback
     for (const key of ALL_PROFESSION_KEYS) {
         try {
-            if (entity.hasTag(PROFESSION_DATA[key].rpcTag) || entity.hasTag(PROFESSION_DATA[key].tag)) {
+            if (entity.hasTag(PROFESSION_DATA[key].tag)) {
                 return key;
             }
         } catch {}
     }
 
-    // 4. Fallback check: unskilled or nitwit
+    // 5. Fallback check: unskilled or nitwit
     try {
         const variantComp = entity.getComponent("minecraft:variant");
         if (variantComp && variantComp.value === 0) return "unskilled";
@@ -202,6 +212,58 @@ export function getVillagerProfession(entity) {
     } catch {}
 
     return null;
+}
+
+/**
+ * Checks if a villager is actively busy performing profession tasks
+ * (such as fishing, harvesting crops, shearing sheep, studying at a lectern, crafting arrows, or in combat)
+ * so village expansion tasks (chest sorting, item scavenging, workbench placement) do not interrupt them.
+ * @param {Entity} villager 
+ * @param {object} managers 
+ * @returns {boolean}
+ */
+export function isVillagerBusyWithProfession(villager, managers = {}) {
+    if (!villager || !villager.isValid()) return false;
+    const id = villager.id;
+
+    if (managers.fishermanManager?.records?.has(id)) {
+        const r = managers.fishermanManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.librarianManager?.records?.has(id)) {
+        const r = managers.librarianManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.shepherdManager?.records?.has(id)) {
+        const r = managers.shepherdManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.fletcherManager?.records?.has(id)) {
+        const r = managers.fletcherManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.farmerManager?.records?.has(id)) {
+        const r = managers.farmerManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.weaponsmithManager?.records?.has(id)) {
+        const r = managers.weaponsmithManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.clericManager?.records?.has(id)) {
+        const r = managers.clericManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.armorerManager?.records?.has(id)) {
+        const r = managers.armorerManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+    if (managers.butcherManager?.records?.has(id)) {
+        const r = managers.butcherManager.records.get(id);
+        if (r && r.state !== "IDLE" && r.state !== "COOLDOWN" && r.state !== "SLEEPING") return true;
+    }
+
+    return false;
 }
 
 /**
@@ -228,6 +290,18 @@ export function clearAllProfessions(target, managers = {}) {
         const rec = managers.fishermanManager.records.get(target.id);
         if (rec && rec.fishingSession) {
             try { rec.fishingSession.bobber?.remove(); } catch {}
+        }
+    }
+
+    // Reset village expansion state
+    if (managers.villageExpansionManager?.records?.has(target.id)) {
+        const expRec = managers.villageExpansionManager.records.get(target.id);
+        if (expRec) {
+            expRec.state = "IDLE";
+            expRec.targetItemEntity = null;
+            expRec.targetChest = null;
+            expRec.placementSpot = null;
+            expRec.timer = 20;
         }
     }
 

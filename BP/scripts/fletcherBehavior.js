@@ -8,7 +8,7 @@
 import { ItemStack, EquipmentSlot } from "@minecraft/server";
 import { FLETCHER_CONFIG } from "./config.js";
 import { distance, getLookRotation, playSoundSafe, spawnParticleSafe, setEntityLook, isTargetUnreachable } from "./utils.js";
-import { notifyDroppedItem } from "./villageExpansionManager.js";
+import { globalExpansionManager, notifyDroppedItem } from "./villageExpansionManager.js";
 
 /**
  * Equips a Bow or Crossbow in the Fletcher's main hand.
@@ -486,17 +486,15 @@ export function performCraftTippedArrows(villager, tablePos) {
     spawnParticleSafe(dim, "minecraft:crit", { x: tablePos.x + 0.5, y: tablePos.y + 0.8, z: tablePos.z + 0.5 });
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: tablePos.x + 0.5, y: tablePos.y + 1.2, z: tablePos.z + 0.5 });
 
-    // Drop arrow reward
-    try {
-        const dropEntity = dim.spawnItem(new ItemStack(FLETCHER_CONFIG.ARROW_ITEM_ID, 2), {
-            x: tablePos.x + 0.5,
-            y: tablePos.y + 0.7,
-            z: tablePos.z + 0.5
-        });
-        if (dropEntity) {
-            notifyDroppedItem(villager, dropEntity);
+    // Store crafted arrows directly into villager carried items for chest deposit
+    if (globalExpansionManager) {
+        const expRecord = globalExpansionManager.records?.get(villager.id);
+        if (expRecord) {
+            const existing = expRecord.carriedItems.find(i => i.typeId === FLETCHER_CONFIG.ARROW_ITEM_ID);
+            if (existing) existing.amount += 2;
+            else expRecord.carriedItems.push({ typeId: FLETCHER_CONFIG.ARROW_ITEM_ID, amount: 2 });
         }
-    } catch {}
+    }
 
     return true;
 }

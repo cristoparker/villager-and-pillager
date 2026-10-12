@@ -37,8 +37,6 @@ export const LibrarianState = {
     APPROACHING_LECTERN_CRAFT: "APPROACHING_LECTERN_CRAFT",
     CRAFTING_BOOKS: "CRAFTING_BOOKS",
     ENCHANTING_BLESSING: "ENCHANTING_BLESSING",
-    APPROACHING_SUGARCANE_SPOT: "APPROACHING_SUGARCANE_SPOT",
-    PLANTING_SUGARCANE: "PLANTING_SUGARCANE",
     APPROACHING_GROWN_SUGARCANE: "APPROACHING_GROWN_SUGARCANE",
     HARVESTING_SUGARCANE: "HARVESTING_SUGARCANE",
     COOLDOWN: "COOLDOWN",
@@ -210,13 +208,13 @@ export class LibrarianManager {
                     const startStep = record.step || 0;
                     let actionFound = false;
 
-                    for (let s = 0; s < 5; s++) {
-                        const currentStep = (startStep + s) % 5;
-                        record.step = (currentStep + 1) % 5;
+                    for (let s = 0; s < 4; s++) {
+                        const currentStep = (startStep + s) % 4;
+                        record.step = (currentStep + 1) % 4;
 
                         // Step 0: Check for monster threat -> cast protective Inspiration Buff!
                         if (currentStep === 0) {
-                            if (isMonsterThreatNearby(villager.dimension, villager.location, 16)) {
+                            if (isMonsterThreatNearby(villager.dimension, villager.location, 14)) {
                                 record.state = LibrarianState.INSPIRING;
                                 record.timer = 20;
                                 actionFound = true;
@@ -244,7 +242,7 @@ export class LibrarianManager {
                             }
                         }
 
-                        // Step 2: High priority: Check for grown sugarcane (height >= 2) to harvest for paper!
+                        // Step 2: High priority: Check for grown wild sugarcane (height >= 2) to harvest for paper!
                         else if (currentStep === 2) {
                             const grown = findGrownSugarcane(villager.dimension, villager.location, LIBRARIAN_CONFIG.SUGARCANE_SEARCH_RADIUS);
                             if (grown && !isTargetUnreachable(grown.pos)) {
@@ -264,28 +262,8 @@ export class LibrarianManager {
                             }
                         }
 
-                        // Step 3: Plant sugarcane on water-connected blocks
+                        // Step 3: Lectern activities: Study, Craft Books, or Enchanting Blessing
                         else if (currentStep === 3) {
-                            const spot = findNearbySugarcanePlantingSpot(villager.dimension, villager.location, LIBRARIAN_CONFIG.SUGARCANE_SEARCH_RADIUS);
-                            if (spot && !isTargetUnreachable(spot.airPos)) {
-                                record.sugarcaneSpot = spot;
-                                const dist = distance(villager.location, spot.airPos);
-                                if (dist <= LIBRARIAN_CONFIG.PLANT_DISTANCE) {
-                                    record.state = LibrarianState.PLANTING_SUGARCANE;
-                                    record.timer = 22;
-                                } else {
-                                    record.state = LibrarianState.APPROACHING_SUGARCANE_SPOT;
-                                    record.timer = 90;
-                                    record.stuckTicks = 0;
-                                    record.lastLoc = { x: villager.location.x, y: villager.location.y, z: villager.location.z };
-                                }
-                                actionFound = true;
-                                break;
-                            }
-                        }
-
-                        // Step 4: Lectern activities: Study, Craft Books, or Enchanting Blessing
-                        else if (currentStep === 4) {
                             const lectern = findNearbyLectern(villager.dimension, villager.location, LIBRARIAN_CONFIG.LECTERN_SEARCH_RADIUS);
                             if (lectern && !isTargetUnreachable(lectern.pos)) {
                                 record.lectern = lectern;
@@ -443,57 +421,6 @@ export class LibrarianManager {
                         performHarvestSugarcane(villager, record.grownSugarcane);
                     }
                     record.grownSugarcane = null;
-                    record.state = LibrarianState.COOLDOWN;
-                    record.timer = 40;
-                }
-                break;
-            }
-
-            case LibrarianState.APPROACHING_SUGARCANE_SPOT: {
-                record.timer--;
-                if (!record.sugarcaneSpot) {
-                    record.state = LibrarianState.IDLE;
-                    record.sugarcaneSpot = null;
-                    record.timer = 10;
-                    break;
-                }
-
-                const curLoc = villager.location;
-                if (record.lastLoc && distance(curLoc, record.lastLoc) < 0.15) {
-                    record.stuckTicks = (record.stuckTicks || 0) + 1;
-                } else {
-                    record.stuckTicks = 0;
-                }
-                record.lastLoc = { x: curLoc.x, y: curLoc.y, z: curLoc.z };
-
-                if (record.stuckTicks > 35 || record.timer <= 0) {
-                    if (record.sugarcaneSpot) markTargetUnreachable(record.sugarcaneSpot.airPos, 400);
-                    record.step = ((record.step || 0) + 1) % 5;
-                    record.state = LibrarianState.IDLE;
-                    record.sugarcaneSpot = null;
-                    record.timer = 1;
-                    break;
-                }
-
-                const targetPos = record.sugarcaneSpot.airPos;
-                const lookPos = { x: targetPos.x + 0.5, y: targetPos.y + 0.5, z: targetPos.z + 0.5 };
-                smoothMoveTowards(villager, lookPos, { speed: 0.16, stopDistance: LIBRARIAN_CONFIG.PLANT_DISTANCE, lookTarget: lookPos });
-
-                const dist = distance(curLoc, targetPos);
-                if (dist <= LIBRARIAN_CONFIG.PLANT_DISTANCE) {
-                    record.state = LibrarianState.PLANTING_SUGARCANE;
-                    record.timer = 22;
-                }
-                break;
-            }
-
-            case LibrarianState.PLANTING_SUGARCANE: {
-                record.timer--;
-                if (record.timer <= 0) {
-                    if (record.sugarcaneSpot) {
-                        performPlantSugarcane(villager, record.sugarcaneSpot.airPos);
-                    }
-                    record.sugarcaneSpot = null;
                     record.state = LibrarianState.COOLDOWN;
                     record.timer = 40;
                 }

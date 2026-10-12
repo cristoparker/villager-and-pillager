@@ -232,6 +232,9 @@ export function findNearbyUnbuffedAlly(dimension, location, radius = ARMORER_CON
  */
 export function performFortifyAlly(villager, ally) {
     if (!villager || !villager.isValid() || !ally || !ally.isValid()) return false;
+    const dist = distance(villager.location, ally.location);
+    if (dist > 3.0) return false;
+
     const dim = villager.dimension;
     const aLoc = ally.location;
 
@@ -245,14 +248,14 @@ export function performFortifyAlly(villager, ally) {
     spawnParticleSafe(dim, "minecraft:villager_happy", { x: aLoc.x, y: aLoc.y + 1.2, z: aLoc.z });
     spawnParticleSafe(dim, "minecraft:totem_particle", { x: aLoc.x, y: aLoc.y + 1.0, z: aLoc.z });
 
-    // Grant 60 seconds of Resistance II and Absorption
+    // Grant 15 seconds of Resistance I and Absorption
     try {
-        ally.addEffect("resistance", 1200, { amplifier: 1, showParticles: true });
-        ally.addEffect("absorption", 1200, { amplifier: 0, showParticles: true });
+        ally.addEffect("resistance", 300, { amplifier: 0, showParticles: true });
+        ally.addEffect("absorption", 300, { amplifier: 0, showParticles: true });
     } catch {
         try {
-            ally.runCommandAsync("effect @s resistance 60 1 true").catch(() => {});
-            ally.runCommandAsync("effect @s absorption 60 0 true").catch(() => {});
+            ally.runCommandAsync("effect @s resistance 15 0 true").catch(() => {});
+            ally.runCommandAsync("effect @s absorption 15 0 true").catch(() => {});
         } catch {}
     }
 
@@ -262,7 +265,7 @@ export function performFortifyAlly(villager, ally) {
             try {
                 if (ally.isValid()) ally.removeTag("rpc:fortified");
             } catch {}
-        }, 1200);
+        }, 300);
     } catch {}
 
     return true;
